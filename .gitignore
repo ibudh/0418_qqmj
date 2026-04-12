@@ -1,0 +1,28 @@
+# Python 编译垃圾
+__pycache__/
+*.py[cod]
+
+# 虚拟环境 (这是核心，绝对不能传)
+venv/
+.venv/
+env/
+
+# IDE 配置
+.idea/
+.vscode/
+.ag/
+
+# 敏感信息
+.env
+.DS_Store
+
+# 运行日志
+server.log
+server.pid
+uvicorn.log
+
+# 测试临时文件
+test_payload.json
+
+# Claude Code
+.claude/

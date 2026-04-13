@@ -226,7 +226,12 @@ class FactEngine:
                 check_chain = fact.context_hierarchy if is_village else f"{fact.context_hierarchy}/{fact.text}"
                 local_result, _ = self.geo.validate_chain(check_chain)
                 if local_result != "not_found":
-                    return idx, []  # 本地可判断，跳过 Tavily
+                    # 本地可判断，返回数据库来源作为证据
+                    return idx, [EvidenceItem(
+                        title="国家统计局统计用区划代码（2023年）",
+                        url="https://www.stats.gov.cn/sj/tjbz/tjyqhdmhcxhfdm/",
+                        snippet="基于国家统计局2023年度统计用区划代码库进行本地精确匹配验证。",
+                    )]
 
                 # 本地未命中（2024年后新设等）→ 定向搜索 gov.cn
                 query = f"{fact.context_hierarchy} {fact.text} 行政区划 site:gov.cn"

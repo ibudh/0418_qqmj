@@ -27,12 +27,9 @@ class GeoLookup:
     """
 
     def __init__(self, data_path: str) -> None:
-        # (parent_name, child_name) → True
         self.hierarchy_set: set[tuple[str, str]] = set()
-        # 所有收录地名
         self.all_names: set[str] = set()
-        # child → 实际上级列表（用于错误提示）
-        self._parent_map: dict[str, list[str]] = {}
+        self._parent_map: dict[str, set[str]] = {}
 
         self._load(data_path)
         logger.info(
@@ -44,22 +41,19 @@ class GeoLookup:
     # 公开接口
     # ------------------------------------------------------------------
 
-    def validate_chain(self, context_hierarchy: str) -> tuple[GeoValidateResult, str]:
-        """
-        验证斜杠分隔的层级链，如 "湖北省/十堰市/郧阳区/茶店镇"。
+    @staticmethod
+    def parse_chain(hierarchy: str) -> list[str]:
+        """将斜杠分隔的层级字符串解析为列表，过滤空段。"""
+        return [p.strip() for p in hierarchy.split("/") if p.strip()]
 
-        返回 (result, reason)：
-        - ("valid", "")        — 链条全部正确
-        - ("invalid", reason)  — 某一层级归属错误
-        - ("not_found", reason)— 链条中某节点不在2023年库中
-        """
+    def validate_chain(self, context_hierarchy: str) -> tuple[GeoValidateResult, str]:
         if not context_hierarchy:
             return "not_found", "未提供行政层级信息"
 
-        parts = [p.strip() for p in context_hierarchy.split("/") if p.strip()]
+        parts = self.parse_chain(context_hierarchy)
         if len(parts) < 2:
             # 单个地名无法验证层级关系
-            return "not_found", f"'{context_hierarchy}'为单一地名，无法验证层级"
+            return "not_found", f"'{context_hierarchy}'为单一地名，无法验证层级关系"
 
         for i in range(len(parts) - 1):
             parent, child = parts[i], parts[i + 1]
@@ -79,13 +73,9 @@ class GeoLookup:
 
         return "valid", ""
 
-    def validate(self, child: str, parent: str) -> GeoValidateResult:
-        """兼容旧接口：单对验证（child 是否属于 parent）。"""
-        return self._validate_pair(parent, child)
-
     def get_correct_parents(self, child: str) -> list[str]:
         """返回 child 的实际上级列表（用于错误提示）。"""
-        return self._parent_map.get(child.strip(), [])
+        return sorted(self._parent_map.get(child.strip(), set()))
 
     # ------------------------------------------------------------------
     # 内部方法
@@ -140,6 +130,4 @@ class GeoLookup:
 
     def _add(self, parent: str, child: str) -> None:
         self.hierarchy_set.add((parent, child))
-        self._parent_map.setdefault(child, [])
-        if parent not in self._parent_map[child]:
-            self._parent_map[child].append(parent)
+        self._parent_map.setdefault(child, set()).add(parent)

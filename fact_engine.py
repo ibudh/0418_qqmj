@@ -221,8 +221,7 @@ class FactEngine:
 
             # geo 类型：先走本地区划库，命中则直接返回空证据列表（验证阶段走本地逻辑）
             if fact.type == "geo" and not fact.context_missing and fact.context_hierarchy:
-                chain_levels = [p.strip() for p in fact.context_hierarchy.split("/") if p.strip()]
-                is_village = len(chain_levels) >= 3
+                is_village = len(self.geo.parse_chain(fact.context_hierarchy)) >= 3
                 check_chain = fact.context_hierarchy if is_village else f"{fact.context_hierarchy}/{fact.text}"
                 local_result, _ = self.geo.validate_chain(check_chain)
                 if local_result != "not_found":
@@ -422,36 +421,20 @@ class FactEngine:
                 "suggestion": "请补全行政归属，如'XX省XX市XX区'",
             }
 
-        # 判断是否为村级事实（context_hierarchy 含乡镇层，即有3个以上斜杠分隔层级）
         chain = fact.context_hierarchy
-        chain_levels = [p.strip() for p in chain.split("/") if p.strip()] if chain else []
-        is_village_fact = len(chain_levels) >= 3  # 链条含乡镇，text 是村名
+        is_village_fact = len(self.geo.parse_chain(chain)) >= 3
+        check_chain = chain if is_village_fact else f"{chain}/{fact.text}"
+        village_note = f"；村名'{fact.text}'不做独立核查" if is_village_fact else ""
 
-        if is_village_fact:
-            # 村级：只验证乡镇层级链，村名本身不核查
-            local_result, reason = self.geo.validate_chain(chain)
-            if local_result == "valid":
-                return {
-                    "result": "通过",
-                    "reason": f"区划库（2023年）确认 {chain} 层级链正确；村名'{fact.text}'不做独立核查",
-                    "suggestion": "",
-                }
-            if local_result == "invalid":
-                return {"result": "错误", "reason": reason, "suggestion": "请核实行政归属"}
-            # not_found：走 Tavily 兜底（下方统一处理）
-        else:
-            # 非村级：text 本身是待验证地名，context_hierarchy 是其上级链
-            full_chain = f"{chain}/{fact.text}" if chain else fact.text
-            local_result, reason = self.geo.validate_chain(full_chain)
-            if local_result == "valid":
-                return {
-                    "result": "通过",
-                    "reason": f"区划库（2023年）确认：{fact.text}属于{chain}管辖，层级正确",
-                    "suggestion": "",
-                }
-            if local_result == "invalid":
-                return {"result": "错误", "reason": reason, "suggestion": "请核实行政归属"}
-            # not_found：走 Tavily 兜底
+        local_result, reason = self.geo.validate_chain(check_chain)
+        if local_result == "valid":
+            return {
+                "result": "通过",
+                "reason": f"区划库（2023年）确认 {check_chain} 层级正确{village_note}",
+                "suggestion": "",
+            }
+        if local_result == "invalid":
+            return {"result": "错误", "reason": reason, "suggestion": "请核实行政归属"}
 
         # not_found：走 LLM + gov.cn 证据判断
         prompt = f"""你是一名严谨的新闻校对专家，专职核查行政区划准确性。

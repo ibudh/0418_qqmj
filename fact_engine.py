@@ -134,7 +134,9 @@ class FactEngine:
 3. **time** — 时间日期（是否正确、是否矛盾）
 4. **geo** — 地名地点，**只提取有明确上下级关系的情形**：
    - 稿件中出现行政归属描述，如"XX省XX市XX县XX镇XX村"或"位于XX省的XX市"
-   - context_hierarchy 填写斜杠分隔的完整上级链，如"湖北省/十堰市/郧阳区/茶店镇"
+   - context_hierarchy 填写斜杠分隔的完整上级链，必须包含稿件中声称的每一级，不能跳过中间层：
+     正确："内蒙古自治区/呼伦贝尔市"（稿件说呼伦贝尔市）
+     错误："内蒙古自治区"（跳过了市级，无法检测市级归属错误）
    - text 填最末一级地名（如是村则填村名，如是镇则填镇名）
    - 涉及村级新闻时：text=村名，context_hierarchy 填到乡镇层（村名本身不核查）
    - 若稿件中无法确定上级，输出 context_missing=true，text 填地名本身
@@ -233,11 +235,18 @@ class FactEngine:
                     items = self._tavily_search(f"{fact.text} 撤县设区 site:gov.cn")
                 return idx, items
 
+            # geo 类型兜底：context_missing 或无上下文时，仍限定 gov.cn
+            if fact.type == "geo":
+                query = f"{fact.text} 行政区划 site:gov.cn"
+                items = self._tavily_search(query)
+                if not items:
+                    items = self._tavily_search(f"{fact.text} 行政区划调整 site:gov.cn")
+                return idx, items
+
             # 其他类型：原有逻辑
             items = self._tavily_search(query)
             if not items:
-                fact_text = fact.text
-                backup_query = f"{fact_text} 最新"
+                backup_query = f"{fact.text} 最新"
                 items = self._tavily_search(backup_query)
             return idx, items
 

@@ -41,6 +41,8 @@ class FactItem(BaseModel):
     reason: str
     evidence_urls: list[str] = []
     suggestion: str = ""
+    query_used: str = ""
+    evidence_found: int = 0
 
 
 class CheckFactsResponse(BaseModel):

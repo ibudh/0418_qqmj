@@ -348,7 +348,12 @@ class FactEngine:
     # 结构化输出
     # ======================================================
 
-    def _build_response(self, verified: list[VerifiedFact]) -> CheckResponse:
+    def _build_response(
+        self,
+        verified: list[VerifiedFact],
+        pipeline: dict,
+        items_extra: list[dict],
+    ) -> CheckResponse:
 
         error_count = sum(1 for v in verified if v.result == "错误")
         doubt_count = sum(1 for v in verified if v.result == "存疑")
@@ -367,8 +372,9 @@ class FactEngine:
             f"\n\n—— 签前秒检 · rmrbtzk-v3 引擎"
         )
 
+        # 按风险排序，保留原始索引以匹配 items_extra
         order = {"错误": 0, "存疑": 1, "通过": 2}
-        sorted_facts = sorted(verified, key=lambda v: order.get(v.result, 3))
+        indexed = sorted(enumerate(verified), key=lambda x: order.get(x[1].result, 3))
 
         items = [
             {
@@ -378,8 +384,10 @@ class FactEngine:
                 "reason": v.reason,
                 "evidence_urls": v.evidence_urls,
                 "suggestion": v.suggestion,
+                "query_used": items_extra[i]["query_used"],
+                "evidence_found": items_extra[i]["evidence_found"],
             }
-            for v in sorted_facts
+            for i, v in indexed
         ]
 
         return CheckResponse(
@@ -390,6 +398,7 @@ class FactEngine:
             doubt_count=doubt_count,
             pass_count=pass_count,
             items=items,
+            pipeline=pipeline,
         )
 
     # ======================================================

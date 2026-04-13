@@ -13,6 +13,9 @@ FILES = [
     "fact_engine.py",
     "schemas.py",
     "api_server.py",
+    "geo_lookup.py",
+    "pca-code.json",
+    "pcas-code.json",
     "requirements.txt",
     "start.sh",
     "stop.sh",
@@ -47,6 +50,7 @@ DEEPSEEK_API_KEY = "sk-740673925ab64b76a1cf314493a0e35e"
 TAVILY_API_KEY = "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"
 BASE_URL = "https://api.deepseek.com"
 MODEL_NAME = "deepseek-chat"
+GEO_DATA_PATH = "pcas-code.json"
 PYEOF""")
     stdout.read()
 

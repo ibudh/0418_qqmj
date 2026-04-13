@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import json
+import time
 import logging
 from typing import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -62,9 +63,13 @@ class FactEngine:
         else:
             max_facts = MAX_FACTS_LONG
 
+        t_total = time.time()
+
         # Step 1: 提取原子事实 + 生成搜索词（合并为一次LLM调用）
         _p("Step 1/3 · 正在提取硬事实并生成搜索词...")
+        t0 = time.time()
         facts_with_queries = self._step1_extract_and_query(article, max_facts)
+        t1_cost = round(time.time() - t0, 1)
         if not facts_with_queries:
             return CheckResponse(
                 risk_level="通过",
@@ -76,13 +81,39 @@ class FactEngine:
 
         # Step 2: 并行搜索证据（搜不到自动补搜一次）
         _p("Step 2/3 · 正在并行联网搜索证据...")
+        t1 = time.time()
         evidence_map = self._step2_parallel_search(facts_with_queries, _p)
+        t2_cost = round(time.time() - t1, 1)
+        evidence_found = sum(1 for v in evidence_map.values() if v)
 
         # Step 3: 并行验证
         _p("Step 3/3 · 正在并行验证...")
+        t2 = time.time()
         verified = self._step3_parallel_verify(facts, evidence_map, article, _p)
+        t3_cost = round(time.time() - t2, 1)
 
-        return self._build_response(verified)
+        total_cost = round(time.time() - t_total, 1)
+
+        # 构建流水线追踪数据
+        pipeline = {
+            "step1_extract": f"从稿件中提取了{len(facts)}条原子事实并生成搜索词（耗时{t1_cost}秒）",
+            "step2_search": f"并行搜索{len(facts)}条事实，{evidence_found}条找到证据（耗时{t2_cost}秒）",
+            "step3_verify": f"并行验证{len(facts)}条事实（耗时{t3_cost}秒）",
+            "total_time": f"{total_cost}秒",
+            "fact_types": {f.type: 0 for f in facts},
+        }
+        for f in facts:
+            pipeline["fact_types"][f.type] += 1
+
+        # 在 items 里加入搜索词和证据数量
+        items_extra = []
+        for i, fq in enumerate(facts_with_queries):
+            items_extra.append({
+                "query_used": fq["query"],
+                "evidence_found": len(evidence_map.get(i, [])),
+            })
+
+        return self._build_response(verified, pipeline, items_extra)
 
     # ======================================================
     # Step 1: 提取硬事实 + 搜索词（一次LLM调用）
@@ -333,6 +364,7 @@ class FactEngine:
         summary = (
             f"共核查 {len(verified)} 条硬事实，"
             f"发现 {error_count} 处错误、{doubt_count} 处存疑、{pass_count} 处通过。"
+            f"\n\n—— 签前秒检 · rmrbtzk-v3 引擎"
         )
 
         order = {"错误": 0, "存疑": 1, "通过": 2}

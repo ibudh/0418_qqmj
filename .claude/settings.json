@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python gui_main.py)",
+      "Bash(pip install:*)",
+      "Bash(pyinstaller --noconfirm --onefile --windowed --name \"稿件辅助审查系统_v3.12\" --add-data \"config.py;.\" --add-data \"fact_checker.py;.\" --add-data \"moderator.py;.\" gui_main.py)",
+      "WebFetch(domain:github.com)",
+      "Bash(pip show:*)",
+      "Bash(python -c \"from fact_engine import FactEngine; print\\('import ok'\\)\")",
+      "Bash(python -m uvicorn api_server:app --host 0.0.0.0 --port 8000)",
+      "Bash(curl -s http://localhost:8000/health)",
+      "Bash(curl -s -X POST http://localhost:8000/check/facts -H 'Content-Type: application/json' -d '{\"content\": \"2024年3月15日，北京市副市长张伟在清华大学出席\\\\\"科技创新与城市发展\\\\\"论坛。张伟指出，2023年北京市GDP达到43760亿元，同比增长5.2%，其中高新技术产业贡献了28%的增长。他还引用了李白的名句\\\\\"长风破浪会有时，直挂云帆济沧海\\\\\"来形容北京的创新精神。据了解，该论坛由清华大学与中关村科技园联合主办，已连续举办12届。论坛期间发布的报告显示，北京市2023年研发投入达到2800亿元，占GDP比重为6.4%，位居全国首位。报告同时指出，全市科技型企业数量突破15万家，较上年增长23%，带动就业超过200万人。\"}')",
+      "Bash(curl -s -X POST http://localhost:8000/check/facts -H \"Content-Type: application/json\" -d @test_payload.json)",
+      "Bash(ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 root@59.110.152.9 \"echo 'connected'\")",
+      "Bash(sshpass -p 'xbu~KiZ+F+&~7!H' ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 root@59.110.152.9 \"echo connected\")",
+      "Bash(apt list:*)",
+      "Bash(python deploy_remote.py)",
+      "Bash(curl -s http://59.110.152.9:8000/health)",
+      "Bash(curl -s --connect-timeout 10 http://59.110.152.9:8000/health)",
+      "Bash(python sync_server.py)",
+      "Bash(time curl:*)"
+    ]
+  }
+}

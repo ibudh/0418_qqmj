@@ -64,4 +64,5 @@ class CheckResponse:
     doubt_count: int
     pass_count: int
     items: list[dict] = field(default_factory=list)
+    pipeline: dict = field(default_factory=dict)
     engine: str = "rmrbtzk-v3"

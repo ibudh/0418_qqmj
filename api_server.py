@@ -51,6 +51,7 @@ class CheckFactsResponse(BaseModel):
     doubt_count: int
     pass_count: int
     items: list[FactItem]
+    pipeline: dict = {}
     engine: str = "rmrbtzk-v3"
 
 

@@ -16,7 +16,7 @@ class ArticleInput:
 
 # ── 内部流转 ──
 
-FactType = Literal["person", "data", "geo", "time", "quote", "other"]
+FactType = Literal["person", "title", "time", "geo", "number", "document"]
 VerifyResult = Literal["错误", "存疑", "通过"]
 
 
@@ -64,3 +64,4 @@ class CheckResponse:
     doubt_count: int
     pass_count: int
     items: list[dict] = field(default_factory=list)
+    engine: str = "rmrbtzk-v3"

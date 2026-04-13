@@ -28,6 +28,7 @@ class AtomicFact:
     priority: int = 2            # 1=必查(国家级) 2=重点查(省部级及以下)
     context_hierarchy: str = ""  # geo专用：稿件中明确的上级行政单位
     context_missing: bool = False  # geo专用：稿件中未提供上下级关系
+    time_context: str = ""       # 时空锚点：事实对应的时间上下文（如"2015年""任期2018-2022"）
 
 
 @dataclass(frozen=True)

@@ -116,12 +116,14 @@ class FactEngine:
         for f in facts:
             pipeline["fact_types"][f.type] += 1
 
-        # 在 items 里加入搜索词和证据数量
+        # 在 items 里加入搜索词、证据数量和来源层级
         items_extra = []
         for i, fq in enumerate(facts_with_queries):
+            evidence_items = evidence_map.get(i, [])
             items_extra.append({
                 "query_used": fq["query"],
-                "evidence_found": len(evidence_map.get(i, [])),
+                "evidence_found": len(evidence_items),
+                "source_tier": self._classify_source_tier(evidence_items),
             })
 
         return self._build_response(verified, pipeline, items_extra)
@@ -305,14 +307,37 @@ class FactEngine:
                     items = self._tavily_search(f"{fact.text} 行政区划调整 site:gov.cn")
                 return idx, items
 
-            # 其他类型：如果有时间锚点，拼入搜索词
+            # number 类型：严格限定信源（仅政府/统计局/央媒）
+            if fact.type == "number":
+                base_query = query
+                if fact.time_context and fact.time_context not in base_query:
+                    base_query = f"{fact.time_context} {base_query}"
+                # 第一级：政府/统计局
+                items = self._tavily_search(
+                    f"{base_query} site:gov.cn OR site:stats.gov.cn"
+                )
+                if items:
+                    return idx, items
+                # 第二级：央媒
+                items = self._tavily_search(
+                    f"{base_query} site:people.com.cn OR site:xinhuanet.com"
+                )
+                return idx, items  # 无论是否命中都到此为止，不做泛搜
+
+            # 其他类型（person/title/time/document）：严格限定信源
             if fact.time_context and fact.time_context not in query:
                 query = f"{fact.time_context} {query}"
-            items = self._tavily_search(query)
-            if not items:
-                backup_query = f"{fact.text} 最新"
-                items = self._tavily_search(backup_query)
-            return idx, items
+            # 第一级：政府网站
+            items = self._tavily_search(
+                f"{query} site:gov.cn"
+            )
+            if items:
+                return idx, items
+            # 第二级：央媒
+            items = self._tavily_search(
+                f"{query} site:people.com.cn OR site:xinhuanet.com"
+            )
+            return idx, items  # 不做泛搜，搜不到判"存疑"
 
         with ThreadPoolExecutor(max_workers=5) as pool:
             futures = {
@@ -586,6 +611,43 @@ class FactEngine:
         return self._call_llm_json_direct(prompt)
 
     # ======================================================
+    # 信源层级判定
+    # ======================================================
+
+    @staticmethod
+    def _classify_source_tier(evidence_items: list[EvidenceItem]) -> str:
+        """根据证据 URL 判定信源层级。
+
+        返回值：
+        - "官方" — 政府网站 / 统计局
+        - "央媒" — 人民网 / 新华网
+        - "其他" — 其他来源
+        - ""     — 无证据
+        """
+        if not evidence_items:
+            return ""
+
+        gov_domains = ("gov.cn", "stats.gov.cn")
+        media_domains = ("people.com.cn", "xinhuanet.com")
+
+        has_gov = False
+        has_media = False
+        for e in evidence_items:
+            url = e.url.lower()
+            if any(d in url for d in gov_domains):
+                has_gov = True
+            elif any(d in url for d in media_domains):
+                has_media = True
+
+        if has_gov:
+            return "官方"
+        if has_media:
+            return "央媒"
+        if evidence_items:
+            return "其他"
+        return ""
+
+    # ======================================================
     # 数据算术验证（Python 硬算，不依赖 LLM）
     # ======================================================
 
@@ -750,6 +812,7 @@ class FactEngine:
                 "suggestion": v.suggestion,
                 "query_used": items_extra[i]["query_used"],
                 "evidence_found": items_extra[i]["evidence_found"],
+                "source_tier": items_extra[i]["source_tier"],
             }
             for i, v in indexed
         ]

@@ -43,6 +43,7 @@ class FactItem(BaseModel):
     suggestion: str = ""
     query_used: str = ""
     evidence_found: int = 0
+    source_tier: str = ""  # 信源层级：官方 / 央媒 / 其他
 
 
 class CheckFactsResponse(BaseModel):

@@ -25,4 +25,5 @@ uvicorn.log
 test_payload.json
 
 # Claude Code
-.claude/
+.claude/deploy_remote.py
+sync_server.py

@@ -1,6 +1,6 @@
 # api_server.py
 # ==========================================
-# FastAPI 服务端 — 稿件硬伤猎手 API
+# FastAPI 服务端 — 签前秒检 API
 # ==========================================
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ logging.basicConfig(
 )
 
 app = FastAPI(
-    title="稿件硬伤猎手 API",
+    title="签前秒检 API",
     description="事实核查引擎：原子分解 → 分类 → HyDE搜索 → 验证 → 报告",
     version="2.0",
 )

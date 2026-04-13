@@ -25,6 +25,9 @@ class AtomicFact:
     """Step 1 输出：一条原子事实"""
     text: str
     type: FactType = "other"
+    priority: int = 2            # 1=必查(国家级) 2=重点查(省部级及以下)
+    context_hierarchy: str = ""  # geo专用：稿件中明确的上级行政单位
+    context_missing: bool = False  # geo专用：稿件中未提供上下级关系
 
 
 @dataclass(frozen=True)
@@ -51,6 +54,7 @@ class VerifiedFact:
     reason: str
     evidence_urls: list[str] = field(default_factory=list)
     suggestion: str = ""
+    priority: int = 2
 
 
 # ── API 响应 ──

@@ -19,6 +19,7 @@ import config
 from schemas import (
     AtomicFact, EvidenceItem, VerifiedFact, CheckResponse,
 )
+from geo_lookup import GeoLookup
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +38,7 @@ class FactEngine:
             base_url=config.BASE_URL,
         )
         self.tavily = TavilyClient(api_key=config.TAVILY_API_KEY)
+        self.geo = GeoLookup(config.GEO_DATA_PATH)
 
     # ======================================================
     # 公开接口
@@ -130,7 +132,14 @@ class FactEngine:
 1. **person** — 人物姓名（是否存在、是否写错）
 2. **title** — 职务头衔（是否准确、是否过时）
 3. **time** — 时间日期（是否正确、是否矛盾）
-4. **geo** — 地名地点（行政区划是否准确）
+4. **geo** — 地名地点，**只提取有明确上下级关系的情形**：
+   - 稿件中出现行政归属描述，如"XX省XX市XX县XX镇XX村"或"位于XX省的XX市"
+   - context_hierarchy 填写斜杠分隔的完整上级链，如"湖北省/十堰市/郧阳区/茶店镇"
+   - text 填最末一级地名（如是村则填村名，如是镇则填镇名）
+   - 涉及村级新闻时：text=村名，context_hierarchy 填到乡镇层（村名本身不核查）
+   - 若稿件中无法确定上级，输出 context_missing=true，text 填地名本身
+   - 不提取孤立省名/市名（如仅出现"广东"无法验证对错）
+   - 不提取自然地理名称（山、河、湖、景区等）
 5. **number** — 数字数据（金额、比例、统计数据是否准确、前后是否矛盾）
 6. **document** — 文件文献名称（法规、报告、规划的名称是否完整准确）
 
@@ -140,19 +149,29 @@ class FactEngine:
 - 个人感悟、观点评论
 - 过渡语（"据了解""值得注意的是"）
 - 无法通过搜索引擎验证的内容
+- **普通市民、村民、农民等个人**（如"村民张某""市民李女士"）的姓名或一般性描述
+- **无名村庄、普通自然村**的一般性事务（如"某村修了一条路"）
+- 匿名消息来源（如"知情人士表示""业内人士透露"）
 
-## 提取规则
+## 主体级别与优先级
 
-1. 每条原子事实只包含一个可验证的信息点
-2. 最多提取 {max_facts} 条，优先提取最容易出错的
-3. 优先级：数字 > 人物职务 > 文件名称 > 时间 > 地点
-4. 为每条事实生成 1 个精准搜索词（能在搜索引擎找到权威结果）
+提取时为每条事实标注 priority（数字越小越重要）：
+
+- **priority=1（必查）**：中央领导人、国家级机关（全国人大、国务院、中央各部委）、
+  国家级政策法规、全国性统计数据、国家级重大事件
+- **priority=2（重点查）**：省部级及以下各级官员、各级政府机构、政策文件、
+  统计数据、知名企业/高校/机构的关键信息、市县级官员与地方性数据
+
+优先提取 priority=1，再填充 priority=2，总数不超过 {max_facts} 条。
 
 ## 输出格式（严格JSON）
 {{
   "facts": [
-    {{"text": "原子事实", "type": "person", "query": "精准搜索关键词"}},
-    {{"text": "GDP同比增长5.2%", "type": "number", "query": "2023年北京市GDP增长率 统计局"}}
+    {{"text": "原子事实", "type": "person", "priority": 1, "query": "精准搜索关键词"}},
+    {{"text": "GDP同比增长5.2%", "type": "number", "priority": 2, "query": "2023年北京市GDP增长率 统计局"}},
+    {{"text": "朝阳区", "type": "geo", "priority": 2, "context_hierarchy": "北京市", "context_missing": false, "query": "北京市朝阳区行政区划"}},
+    {{"text": "张家村", "type": "geo", "priority": 2, "context_hierarchy": "湖北省/十堰市/郧阳区/茶店镇", "context_missing": false, "query": "郧阳区茶店镇行政区划"}},
+    {{"text": "某地", "type": "geo", "priority": 2, "context_hierarchy": "", "context_missing": true, "query": "某地行政区划"}}
   ]
 }}"""
 
@@ -165,11 +184,22 @@ class FactEngine:
             text = item.get("text", "").strip()
             fact_type = item.get("type", "")
             query = item.get("query", text)
+            priority = int(item.get("priority", 2))
+            context_hierarchy = item.get("context_hierarchy", "").strip()
+            context_missing = bool(item.get("context_missing", False))
             if text and fact_type in valid_types:
                 facts.append({
-                    "fact": AtomicFact(text=text, type=fact_type),
+                    "fact": AtomicFact(
+                        text=text,
+                        type=fact_type,
+                        priority=priority,
+                        context_hierarchy=context_hierarchy,
+                        context_missing=context_missing,
+                    ),
                     "query": query,
                 })
+        # priority=1 优先，同级按原始顺序
+        facts.sort(key=lambda x: x["fact"].priority)
         return facts[:max_facts]
 
     # ======================================================
@@ -185,10 +215,28 @@ class FactEngine:
         evidence_map: dict[int, list[EvidenceItem]] = {}
 
         def search_one(idx: int, query: str) -> tuple[int, list[EvidenceItem]]:
+            fact = facts_with_queries[idx]["fact"]
+
+            # geo 类型：先走本地区划库，命中则直接返回空证据列表（验证阶段走本地逻辑）
+            if fact.type == "geo" and not fact.context_missing and fact.context_hierarchy:
+                chain_levels = [p.strip() for p in fact.context_hierarchy.split("/") if p.strip()]
+                is_village = len(chain_levels) >= 3
+                check_chain = fact.context_hierarchy if is_village else f"{fact.context_hierarchy}/{fact.text}"
+                local_result, _ = self.geo.validate_chain(check_chain)
+                if local_result != "not_found":
+                    return idx, []  # 本地可判断，跳过 Tavily
+
+                # 本地未命中（2024年后新设等）→ 定向搜索 gov.cn
+                query = f"{fact.context_hierarchy} {fact.text} 行政区划 site:gov.cn"
+                items = self._tavily_search(query)
+                if not items:
+                    items = self._tavily_search(f"{fact.text} 撤县设区 site:gov.cn")
+                return idx, items
+
+            # 其他类型：原有逻辑
             items = self._tavily_search(query)
-            # 搜不到时，用原文换个角度补搜一次
             if not items:
-                fact_text = facts_with_queries[idx]["fact"].text
+                fact_text = fact.text
                 backup_query = f"{fact_text} 最新"
                 items = self._tavily_search(backup_query)
             return idx, items
@@ -249,6 +297,8 @@ class FactEngine:
 
             if fact.type == "number":
                 result = self._verify_number(fact, evidence_text, article)
+            elif fact.type == "geo":
+                result = self._verify_geo(fact, evidence_text, evidence)
             else:
                 result = self._verify_general(fact, evidence_text)
 
@@ -260,6 +310,7 @@ class FactEngine:
                 reason=result["reason"],
                 evidence_urls=evidence_urls[:3],
                 suggestion=result.get("suggestion", ""),
+                priority=fact.priority,
             )
 
         with ThreadPoolExecutor(max_workers=5) as pool:
@@ -344,6 +395,76 @@ class FactEngine:
 
         return self._call_llm_json_direct(prompt)
 
+    def _verify_geo(
+        self, fact: AtomicFact, evidence: str, evidence_items: list[EvidenceItem]
+    ) -> dict:
+        """地名专用验证：本地区划库优先，Tavily gov.cn 兜底"""
+
+        # context_missing：无法判断上下级关系 → 存疑
+        if fact.context_missing or not fact.context_hierarchy:
+            return {
+                "result": "存疑",
+                "reason": f"稿件中未明确'{fact.text}'的上级行政单位，无法核实层级关系，建议人工核查",
+                "suggestion": "请补全行政归属，如'XX省XX市XX区'",
+            }
+
+        # 判断是否为村级事实（context_hierarchy 含乡镇层，即有3个以上斜杠分隔层级）
+        chain = fact.context_hierarchy
+        chain_levels = [p.strip() for p in chain.split("/") if p.strip()] if chain else []
+        is_village_fact = len(chain_levels) >= 3  # 链条含乡镇，text 是村名
+
+        if is_village_fact:
+            # 村级：只验证乡镇层级链，村名本身不核查
+            local_result, reason = self.geo.validate_chain(chain)
+            if local_result == "valid":
+                return {
+                    "result": "通过",
+                    "reason": f"区划库（2023年）确认 {chain} 层级链正确；村名'{fact.text}'不做独立核查",
+                    "suggestion": "",
+                }
+            if local_result == "invalid":
+                return {"result": "错误", "reason": reason, "suggestion": "请核实行政归属"}
+            # not_found：走 Tavily 兜底（下方统一处理）
+        else:
+            # 非村级：text 本身是待验证地名，context_hierarchy 是其上级链
+            full_chain = f"{chain}/{fact.text}" if chain else fact.text
+            local_result, reason = self.geo.validate_chain(full_chain)
+            if local_result == "valid":
+                return {
+                    "result": "通过",
+                    "reason": f"区划库（2023年）确认：{fact.text}属于{chain}管辖，层级正确",
+                    "suggestion": "",
+                }
+            if local_result == "invalid":
+                return {"result": "错误", "reason": reason, "suggestion": "请核实行政归属"}
+            # not_found：走 Tavily 兜底
+
+        # not_found：走 LLM + gov.cn 证据判断
+        prompt = f"""你是一名严谨的新闻校对专家，专职核查行政区划准确性。
+
+【待核查地名】：{fact.text}
+【稿件中标注的上级】：{fact.context_hierarchy}
+【gov.cn 搜索证据】：
+{evidence}
+
+## 核查规则（严格按优先级执行）
+
+1. **级别错位**：若证据显示 {fact.text} 的行政层级与 {fact.context_hierarchy} 不匹配
+   （如直辖市直管区被误写为某市下辖）→ 判"错误"，给出正确归属
+2. **新旧交替**：若证据显示近年发生撤县设区/设市等变更
+   → 判"存疑"，注明变更依据和建议改法
+3. **简称/全称/别称**：广东=广东省，均视为正确 → 判"通过"
+4. **证据不足**：gov.cn 无明确结论 → 判"存疑"
+
+## 输出格式（严格JSON）
+{{
+  "result": "错误/存疑/通过",
+  "reason": "一句话说明判断依据，引用证据中的关键信息",
+  "suggestion": "如有误，给出具体修改建议；如通过则为空"
+}}"""
+
+        return self._call_llm_json_direct(prompt)
+
     # ======================================================
     # 结构化输出
     # ======================================================
@@ -380,6 +501,7 @@ class FactEngine:
             {
                 "fact": v.fact,
                 "type": v.fact_type,
+                "priority": v.priority,
                 "result": v.result,
                 "reason": v.reason,
                 "evidence_urls": v.evidence_urls,

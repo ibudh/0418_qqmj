@@ -1,0 +1,371 @@
+[
+  {
+    "id": "geo_001",
+    "category": "上级归属错误",
+    "description": "温州误作淳安上级（应为杭州）",
+    "article": "浙江温州淳安县枫树岭镇下姜村近年来大力发展乡村旅游，吸引了众多游客前来观光。",
+    "expect_extracted": true,
+    "expect_context_hierarchy": "浙江省/温州市/淳安县/枫树岭镇",
+    "expect_result": "错误"
+  },
+  {
+    "id": "geo_002",
+    "category": "上级归属错误",
+    "description": "呼伦贝尔误作土默特左旗上级（应为呼和浩特）",
+    "article": "内蒙古呼伦贝尔市土默特左旗的农业发展取得显著成效。",
+    "expect_extracted": true,
+    "expect_context_hierarchy": "内蒙古自治区/呼伦贝尔市",
+    "expect_result": "错误"
+  },
+  {
+    "id": "geo_003",
+    "category": "上级归属错误",
+    "description": "深圳误作番禺上级（应为广州）",
+    "article": "广东省深圳市番禺区近期开展了大规模城市更新改造工程。",
+    "expect_extracted": true,
+    "expect_context_hierarchy": "广东省/深圳市",
+    "expect_result": "错误"
+  },
+  {
+    "id": "geo_004",
+    "category": "正确层级",
+    "description": "杭州淳安层级正确",
+    "article": "浙江杭州淳安县枫树岭镇下姜村近年来大力发展乡村旅游，吸引了众多游客前来观光。",
+    "expect_extracted": true,
+    "expect_context_hierarchy": "浙江省/杭州市/淳安县/枫树岭镇",
+    "expect_result": "通过"
+  },
+  {
+    "id": "geo_005",
+    "category": "正确层级",
+    "description": "内蒙古呼和浩特土默特左旗层级正确",
+    "article": "内蒙古自治区呼和浩特市土默特左旗近年来加快推进农业现代化建设。",
+    "expect_extracted": true,
+    "expect_context_hierarchy": "内蒙古自治区/呼和浩特市",
+    "expect_result": "通过"
+  },
+  {
+    "id": "geo_006",
+    "category": "正确层级",
+    "description": "广州番禺层级正确",
+    "article": "广东省广州市番禺区城市更新改造工程全面推进。",
+    "expect_extracted": true,
+    "expect_context_hierarchy": "广东省/广州市",
+    "expect_result": "通过"
+  },
+  {
+    "id": "geo_007",
+    "category": "不存在地名",
+    "description": "钱塘市不存在（浙江无此地级市）",
+    "article": "浙江省钱塘市金华县近年来经济发展迅速，GDP增速位居全省前列。",
+    "expect_extracted": true,
+    "expect_context_hierarchy": "浙江省/钱塘市",
+    "expect_result": "错误"
+  },
+  {
+    "id": "geo_008",
+    "category": "不存在地名",
+    "description": "四川北川市不存在（北川为县级，非地级市）",
+    "article": "四川省北川市羌族自治县近期举行了文化节活动。",
+    "expect_extracted": true,
+    "expect_context_hierarchy": "四川省/北川市",
+    "expect_result": "错误"
+  },
+  {
+    "id": "geo_009",
+    "category": "村级正确",
+    "description": "杭州淳安枫树岭镇下姜村，村名不单独核查",
+    "article": "杭州市淳安县枫树岭镇下姜村是著名的乡村旅游示范村。",
+    "expect_extracted": true,
+    "expect_context_hierarchy": "杭州市/淳安县/枫树岭镇",
+    "expect_result": "通过"
+  },
+  {
+    "id": "geo_010",
+    "category": "村级正确",
+    "description": "湖北郧阳区茶店镇张家村层级正确",
+    "article": "湖北省十堰市郧阳区茶店镇张家村的产业扶贫工作取得了实质性进展。",
+    "expect_extracted": true,
+    "expect_context_hierarchy": "湖北省/十堰市/郧阳区/茶店镇",
+    "expect_result": "通过"
+  },
+  {
+    "id": "geo_011",
+    "category": "稿件内部矛盾",
+    "description": "标题写温州、正文写杭州，同一地名归属矛盾",
+    "article": "浙江温州淳安县发展纪实\n\n记者从浙江省杭州市淳安县了解到，该县近年来乡村旅游蓬勃发展。",
+    "expect_extracted": true,
+    "expect_context_hierarchy": "浙江省/温州市",
+    "expect_result": "错误"
+  },
+  {
+    "id": "geo_012",
+    "category": "稿件内部矛盾",
+    "description": "标题呼和浩特、正文呼伦贝尔，同一地名归属矛盾",
+    "article": "内蒙古呼和浩特市土默特左旗发展报道\n\n记者在内蒙古自治区呼伦贝尔市土默特左旗采访时了解到，当地牧业生产形势良好。",
+    "expect_extracted": true,
+    "expect_context_hierarchy": "内蒙古自治区/呼和浩特市",
+    "expect_result": "错误"
+  },
+  {
+    "id": "geo_013",
+    "category": "简称全称",
+    "description": "广东番禺，广东是广东省简称，应通过",
+    "article": "广东广州番禺区城市更新改造正式启动，计划改造老旧小区120个。",
+    "expect_extracted": true,
+    "expect_context_hierarchy": "广东/广州",
+    "expect_result": "通过"
+  },
+  {
+    "id": "geo_014",
+    "category": "不应提取",
+    "description": "京津冀是跨省区域概念，不应提取为geo事实",
+    "article": "京津冀协同发展战略实施以来，三地交通一体化取得显著进展。",
+    "expect_extracted": false,
+    "expect_context_hierarchy": "",
+    "expect_result": "不提取"
+  },
+  {
+    "id": "geo_015",
+    "category": "直辖市特殊",
+    "description": "北京朝阳区，直辖市直接辖区，无地级市层级",
+    "article": "北京市朝阳区近期开展了大规模城市绿化工程。",
+    "expect_extracted": true,
+    "expect_context_hierarchy": "北京市",
+    "expect_result": "通过"
+  },
+  {
+    "id": "geo_016",
+    "category": "直辖市特殊",
+    "description": "重庆涪陵区，直辖市直接辖区",
+    "article": "重庆市涪陵区榨菜产业今年产值突破50亿元。",
+    "expect_extracted": true,
+    "expect_context_hierarchy": "重庆市",
+    "expect_result": "通过"
+  },
+  {
+    "id": "geo_017",
+    "category": "不应提取",
+    "description": "千岛湖是自然地理名称，不应提取",
+    "article": "千岛湖风景区近年来游客数量持续增长，旅游收入逐年攀升。",
+    "expect_extracted": false,
+    "expect_context_hierarchy": "",
+    "expect_result": "不提取"
+  },
+  {
+    "id": "geo_018",
+    "category": "不应提取",
+    "description": "黄河流域是自然地理范围，不应提取",
+    "article": "黄河流域生态保护和高质量发展战略深入实施，沿线省份积极推进绿色发展。",
+    "expect_extracted": false,
+    "expect_context_hierarchy": "",
+    "expect_result": "不提取"
+  },
+  {
+    "id": "geo_019",
+    "category": "不应提取",
+    "description": "孤立省名广东，无下级地名，不应提取",
+    "article": "广东近年来经济总量连续多年位居全国第一，市场活力持续增强。",
+    "expect_extracted": false,
+    "expect_context_hierarchy": "",
+    "expect_result": "不提取"
+  },
+  {
+    "id": "geo_020",
+    "category": "不应提取",
+    "description": "孤立省名浙江，仅出现省名，不应提取",
+    "article": "浙江数字经济发展走在全国前列，为全国提供了可复制的经验。",
+    "expect_extracted": false,
+    "expect_context_hierarchy": "",
+    "expect_result": "不提取"
+  },
+  {
+    "id": "geo_021",
+    "category": "新设区划",
+    "description": "撤县设区：浙江杭州钱塘区（原钱塘新区，2021年设区）",
+    "article": "浙江省杭州市钱塘区作为新兴产业集聚区，近年来吸引了大批高新技术企业落户。",
+    "expect_extracted": true,
+    "expect_context_hierarchy": "浙江省/杭州市",
+    "expect_result": "通过"
+  },
+  {
+    "id": "geo_022",
+    "category": "新设区划",
+    "description": "已撤销区划：浙江省金华市浦江县（2023年划入义乌市）",
+    "article": "浙江省金华市浦江县水晶产业近年来加快转型升级。",
+    "expect_extracted": true,
+    "expect_context_hierarchy": "浙江省/金华市",
+    "expect_result": "存疑"
+  },
+  {
+    "id": "geo_023",
+    "category": "context_missing",
+    "description": "稿件中仅出现地名无上下文，context_missing应为true，判存疑",
+    "article": "记者从枫树岭镇了解到，当地乡村旅游发展势头良好，今年接待游客超过百万人次。",
+    "expect_extracted": true,
+    "expect_context_hierarchy": "",
+    "expect_result": "存疑"
+  },
+  {
+    "id": "geo_024",
+    "category": "context_missing",
+    "description": "稿件中地名无上下文，判存疑",
+    "article": "土默特左旗近年来积极推进农牧业现代化，粮食产量连续多年稳定增长。",
+    "expect_extracted": true,
+    "expect_context_hierarchy": "",
+    "expect_result": "存疑"
+  },
+  {
+    "id": "geo_025",
+    "category": "完整文章片段",
+    "description": "下姜村文章前200字，应检出温州归属错误",
+    "article": "（假日生活版  最佳旅游乡村）\n浙江温州淳安下姜村：梦开始的地方\n本报记者  江南\n远山连绵，溪水环绕，白墙黛瓦参差错落，堰坝廊桥点缀其间。\n从浙江杭州淳杨公路一路往西，车过下姜隧道，淳安县枫树岭镇下姜村如一幅山水田园长卷展开在眼前。",
+    "expect_extracted": true,
+    "expect_ch_contains": "温州",
+    "expect_result": "错误"
+  },
+
+  {"_comment": "=== 同名异地消歧 ==="},
+
+  {
+    "id": "geo_026",
+    "category": "同名异地",
+    "description": "朝阳+辽塔语境，应识别为辽宁省朝阳市",
+    "article": "辽宁省朝阳市近日对朝阳北塔等历史文化遗址启动新一轮保护修缮工程。",
+    "expect_extracted": true,
+    "expect_ch_contains": "辽宁",
+    "expect_result": "通过"
+  },
+  {
+    "id": "geo_027",
+    "category": "同名异地",
+    "description": "朝阳区+三里屯语境，应识别为北京市朝阳区",
+    "article": "北京市朝阳区三里屯商圈近期启动夜间经济提升改造项目，预计今年底完工。",
+    "expect_extracted": true,
+    "expect_ch_contains": "北京",
+    "expect_result": "通过"
+  },
+  {
+    "id": "geo_028",
+    "category": "同名异地",
+    "description": "混淆：辽宁朝阳市报道误标北京朝阳区",
+    "article": "北京市朝阳区文物部门近日完成了对辽代佛塔的修缮，该塔已有千年历史。",
+    "expect_extracted": true,
+    "expect_ch_contains": "北京",
+    "expect_result": "存疑"
+  },
+  {
+    "id": "geo_029",
+    "category": "同名异地",
+    "description": "铁西区+沈阳语境，应识别为辽宁省沈阳市铁西区",
+    "article": "辽宁省沈阳市铁西区作为老工业基地，近年来加快推进制造业转型升级。",
+    "expect_extracted": true,
+    "expect_ch_contains": "沈阳",
+    "expect_result": "通过"
+  },
+  {
+    "id": "geo_030",
+    "category": "同名异地",
+    "description": "中山市+广东语境，应识别为广东省中山市",
+    "article": "广东省中山市今年举办了第十届国际灯光节，吸引游客超过200万人次。",
+    "expect_extracted": true,
+    "expect_ch_contains": "广东",
+    "expect_result": "通过"
+  },
+  {
+    "id": "geo_031",
+    "category": "同名异地",
+    "description": "中山区+大连语境，应识别为辽宁省大连市中山区",
+    "article": "辽宁省大连市中山区近期完成了老旧街区改造，提升了城市风貌。",
+    "expect_extracted": true,
+    "expect_ch_contains": "大连",
+    "expect_result": "通过"
+  },
+
+  {"_comment": "=== 近年区划变更 ==="},
+
+  {
+    "id": "geo_032",
+    "category": "区划变更",
+    "description": "莱芜市2019年撤市设区，现为济南市莱芜区，写成莱芜市应存疑",
+    "article": "山东省济南市莱芜区近年来大力发展先进制造业，多个重点项目相继落地。",
+    "expect_extracted": true,
+    "expect_ch_contains": "济南",
+    "expect_result": "通过"
+  },
+  {
+    "id": "geo_033",
+    "category": "区划变更",
+    "description": "写成已撤销的莱芜市（地级市）应判错误或存疑",
+    "article": "山东省莱芜市钢铁产业今年产值突破千亿元，成为区域经济重要支柱。",
+    "expect_extracted": true,
+    "expect_ch_contains": "山东",
+    "expect_result": "存疑"
+  },
+  {
+    "id": "geo_034",
+    "category": "区划变更",
+    "description": "蓬莱2020年撤市设区，现为烟台市蓬莱区，写成蓬莱市应存疑",
+    "article": "山东省烟台市蓬莱市葡萄酒产业今年迎来丰收，多个品种获国际大奖。",
+    "expect_extracted": true,
+    "expect_ch_contains": "烟台",
+    "expect_result": "存疑"
+  },
+  {
+    "id": "geo_035",
+    "category": "区划变更",
+    "description": "雄安新区2017年设立，属河北省，误写为北京市雄安新区应判错误",
+    "article": "北京市雄安新区建设进展顺利，多个重点疏解项目已正式开工。",
+    "expect_extracted": true,
+    "expect_ch_contains": "北京",
+    "expect_result": "错误"
+  },
+
+  {"_comment": "=== 真实新闻高频错误 ==="},
+
+  {
+    "id": "geo_036",
+    "category": "真实错误",
+    "description": "神农架是林区不是市，误写为神农架市应判错误",
+    "article": "湖北省神农架市近年来大力发展生态旅游，年接待游客超过500万人次。",
+    "expect_extracted": true,
+    "expect_ch_contains": "湖北",
+    "expect_result": "错误"
+  },
+  {
+    "id": "geo_037",
+    "category": "真实错误",
+    "description": "简阳市由成都市代管，误归属资阳市应判错误",
+    "article": "四川省资阳市简阳市近年来承接成都产业转移，经济总量快速增长。",
+    "expect_extracted": true,
+    "expect_ch_contains": "资阳",
+    "expect_result": "错误"
+  },
+  {
+    "id": "geo_038",
+    "category": "真实错误",
+    "description": "凉山是彝族自治州不是市，误写为凉山市应判错误",
+    "article": "四川省凉山市彝族自治州近年来脱贫攻坚成效显著，居民收入持续增长。",
+    "expect_extracted": true,
+    "expect_ch_contains": "四川",
+    "expect_result": "错误"
+  },
+  {
+    "id": "geo_039",
+    "category": "真实错误",
+    "description": "林芝正确写法为林芝市（2015年撤地设市），写林芝地区应存疑",
+    "article": "西藏自治区林芝地区近年来旅游业快速发展，成为藏东南重要旅游目的地。",
+    "expect_extracted": true,
+    "expect_ch_contains": "西藏",
+    "expect_result": "存疑"
+  },
+  {
+    "id": "geo_040",
+    "category": "真实错误",
+    "description": "三亚市吉阳区正确（2015年设区），正确写法应通过",
+    "article": "海南省三亚市吉阳区近年来大力发展免税购物和滨海旅游，吸引大量国内外游客。",
+    "expect_extracted": true,
+    "expect_ch_contains": "三亚",
+    "expect_result": "通过"
+  }
+]

@@ -88,6 +88,47 @@ async def health() -> dict:
     return {"status": "ok", "version": "2.0"}
 
 
+# ── 调试端点 ──
+
+class ExtractDebugResponse(BaseModel):
+    total: int
+    facts: list[dict]
+
+
+@app.post("/debug/extract", response_model=ExtractDebugResponse)
+async def debug_extract(req: ArticleRequest) -> ExtractDebugResponse:
+    """
+    调试端点：只运行 Step 1，返回提取的原子事实列表，不做搜索和验证。
+    用于排查哪些事实被提取、搜索词是什么。
+    """
+    try:
+        article_len = len(req.content)
+        if article_len < 500:
+            max_facts = 5
+        elif article_len < 2000:
+            max_facts = 8
+        else:
+            max_facts = 10
+
+        facts_with_queries = engine._step1_extract_and_query(req.content, max_facts)
+        facts = [
+            {
+                "text": fq["fact"].text,
+                "type": fq["fact"].type,
+                "priority": fq["fact"].priority,
+                "context_hierarchy": fq["fact"].context_hierarchy,
+                "context_missing": fq["fact"].context_missing,
+                "time_context": fq["fact"].time_context,
+                "query": fq["query"],
+            }
+            for fq in facts_with_queries
+        ]
+        return ExtractDebugResponse(total=len(facts), facts=facts)
+    except Exception as e:
+        logging.error(f"调试提取失败: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"提取过程出错: {str(e)}")
+
+
 # ── 启动入口 ──
 
 if __name__ == "__main__":

@@ -40,6 +40,7 @@ class FactItem(BaseModel):
     result: str
     reason: str
     evidence_urls: list[str] = []
+    sources: list[dict] = []     # [{name: "人民网", url: "..."}, ...]
     suggestion: str = ""
     query_used: str = ""
     evidence_found: int = 0

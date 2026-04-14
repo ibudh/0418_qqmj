@@ -23,6 +23,64 @@ from geo_lookup import GeoLookup
 
 logger = logging.getLogger(__name__)
 
+# ── 站点名映射 ──
+_SITE_NAMES: dict[str, str] = {
+    "people.com.cn": "人民网",
+    "xinhuanet.com": "新华网",
+    "xinhua.org": "新华社",
+    "cctv.com": "央视网",
+    "cctvnews.cctv.com": "央视新闻",
+    "gmw.cn": "光明网",
+    "cnr.cn": "央广网",
+    "china.com.cn": "中国网",
+    "chinadaily.com.cn": "中国日报",
+    "ce.cn": "中国经济网",
+    "youth.cn": "中国青年网",
+    "stats.gov.cn": "国家统计局",
+    "moe.gov.cn": "教育部",
+    "ndrc.gov.cn": "国家发改委",
+    "mfa.gov.cn": "外交部",
+    "mod.gov.cn": "国防部",
+    "nhc.gov.cn": "国家卫健委",
+    "samr.gov.cn": "国家市场监管总局",
+    "miit.gov.cn": "工业和信息化部",
+    "mofcom.gov.cn": "商务部",
+    "mof.gov.cn": "财政部",
+    "pbc.gov.cn": "中国人民银行",
+    "court.gov.cn": "最高人民法院",
+    "spp.gov.cn": "最高人民检察院",
+    "npc.gov.cn": "全国人大",
+    "cppcc.gov.cn": "全国政协",
+    "baidu.com": "百度百科",
+    "wikipedia.org": "维基百科",
+}
+
+
+def _get_site_name(url: str) -> str:
+    """从 URL 提取可读站点名"""
+    try:
+        from urllib.parse import urlparse
+        host = urlparse(url).netloc.lower().lstrip("www.")
+        # 精确匹配
+        if host in _SITE_NAMES:
+            return _SITE_NAMES[host]
+        # 子域名匹配（如 news.people.com.cn → 人民网）
+        for domain, name in _SITE_NAMES.items():
+            if host.endswith("." + domain):
+                return name
+        # gov.cn 兜底：提取二级域名作为机构名
+        if host.endswith(".gov.cn"):
+            parts = host.split(".")
+            if len(parts) >= 3:
+                return f"{parts[-3].upper()} 政府网"
+            return "政府官网"
+        # 其他：取主域名
+        parts = host.split(".")
+        return parts[-2] if len(parts) >= 2 else host
+    except Exception:
+        return ""
+
+
 # 根据稿件长度决定最大提取条数
 MAX_FACTS_SHORT = 5    # <500字
 MAX_FACTS_MEDIUM = 8   # 500-2000字
@@ -365,6 +423,7 @@ class FactEngine:
                     title=r.get("title", ""),
                     url=r.get("url", ""),
                     snippet=r.get("content", "")[:500],
+                    source_name=_get_site_name(r.get("url", "")),
                 )
                 for r in resp.get("results", [])
             ]
@@ -392,7 +451,8 @@ class FactEngine:
             fact = facts[idx]
             evidence = evidence_map.get(idx, [])
             evidence_text = "\n".join(
-                f"- [{e.title}]({e.url}): {e.snippet}" for e in evidence
+                f"- 【{e.source_name or '未知来源'}】{e.title}（{e.url}）: {e.snippet}"
+                for e in evidence
             ) or "无搜索结果"
 
             if fact.type == "number":
@@ -405,12 +465,17 @@ class FactEngine:
                 result = self._verify_general(fact, evidence_text)
 
             evidence_urls = [e.url for e in evidence if e.url]
+            sources = [
+                {"name": e.source_name or e.url, "url": e.url}
+                for e in evidence if e.url
+            ]
             return idx, VerifiedFact(
                 fact=fact.text,
                 fact_type=fact.type,
                 result=result["result"],
                 reason=result["reason"],
                 evidence_urls=evidence_urls[:3],
+                sources=sources[:3],
                 suggestion=result.get("suggestion", ""),
                 priority=fact.priority,
             )
@@ -809,6 +874,7 @@ class FactEngine:
                 "result": v.result,
                 "reason": v.reason,
                 "evidence_urls": v.evidence_urls,
+                "sources": v.sources,
                 "suggestion": v.suggestion,
                 "query_used": items_extra[i]["query_used"],
                 "evidence_found": items_extra[i]["evidence_found"],

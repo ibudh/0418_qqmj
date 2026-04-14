@@ -44,6 +44,7 @@ class EvidenceItem:
     title: str = ""
     url: str = ""
     snippet: str = ""
+    source_name: str = ""   # 可读站点名，如"人民网"、"国家统计局"
 
 
 @dataclass(frozen=True)
@@ -54,6 +55,7 @@ class VerifiedFact:
     result: VerifyResult
     reason: str
     evidence_urls: list[str] = field(default_factory=list)
+    sources: list[dict] = field(default_factory=list)  # [{name, url}, ...]
     suggestion: str = ""
     priority: int = 2
 

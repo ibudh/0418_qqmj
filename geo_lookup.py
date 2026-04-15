@@ -63,13 +63,13 @@ class GeoLookup:
                 correct_str = "、".join(correct) if correct else "（库中有此地名但上级不符）"
                 return "invalid", (
                     f"'{child}'不属于'{parent}'管辖，"
-                    f"区划库显示其实际上级为：{correct_str}"
+                    f"国家统计局区划库显示其实际上级为：{correct_str}"
                 )
             if result == "not_found":
                 if child not in self.all_names:
-                    return "not_found", f"'{child}'不在2023年区划库中，可能为近年新设或库外地名"
+                    return "not_found", f"'{child}'不在国家统计局区划库中，可能为近年新设或库外地名"
                 # parent 不在库中
-                return "not_found", f"'{parent}'不在2023年区划库中"
+                return "not_found", f"'{parent}'不在国家统计局区划库中"
 
         return "valid", ""
 

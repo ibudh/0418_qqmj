@@ -377,19 +377,21 @@ class FactEngine:
                 check_chain = fact.context_hierarchy if is_village else f"{fact.context_hierarchy}/{fact.text}"
                 local_result, _ = self.geo.validate_chain(check_chain)
                 if local_result != "not_found":
-                    # 本地可判断，返回数据库来源作为证据
-                    return idx, [EvidenceItem(
-                        title="国家统计局统计用区划代码（2023年）",
-                        url="https://www.stats.gov.cn/sj/tjbz/tjyqhdmhcxhfdm/",
-                        snippet="基于国家统计局2023年度统计用区划代码库进行本地精确匹配验证。",
-                    )]
+                    # 本地可判断，补搜 gov.cn 提供真实链接
+                    geo_query = f"{fact.context_hierarchy} {fact.text} 行政区划 site:gov.cn"
+                    items = self._tavily_search(geo_query)
+                    if len(items) < 3:
+                        items += self._tavily_search(
+                            f"{fact.text} 行政区划 site:people.com.cn OR site:xinhuanet.com"
+                        )
+                    return idx, items[:3]
 
                 # 本地未命中（2024年后新设等）→ 定向搜索 gov.cn
                 query = f"{fact.context_hierarchy} {fact.text} 行政区划 site:gov.cn"
                 items = self._tavily_search(query)
-                if not items:
-                    items = self._tavily_search(f"{fact.text} 撤县设区 site:gov.cn")
-                return idx, items
+                if len(items) < 3:
+                    items += self._tavily_search(f"{fact.text} 撤县设区 site:gov.cn")
+                return idx, items[:3]
 
             # geo 类型兜底：context_missing 或无上下文时，仍限定 gov.cn
             if fact.type == "geo":
@@ -664,17 +666,15 @@ class FactEngine:
             if consistency_issue:
                 return {
                     "result": "错误",
-                    "reason": f"区划库确认 {check_chain} 层级正确，但稿件内部存在矛盾：{consistency_issue}",
-                    "suggestion": "请统一稿件中的行政归属表述",
+                    "reason": f"国家统计局区划库确认 {check_chain} 层级正确，但稿件内部存在矛盾：{consistency_issue}",
                 }
             return {
                 "result": "通过",
-                "reason": f"区划库（2023年）确认 {check_chain} 层级正确{village_note}",
-                "suggestion": "",
+                "reason": f"国家统计局区划库确认 {check_chain} 层级正确{village_note}",
             }
         if local_result == "invalid":
             extra = f"；此外稿件内部也存在矛盾：{consistency_issue}" if consistency_issue else ""
-            return {"result": "错误", "reason": f"{reason}{extra}", "suggestion": "请核实行政归属"}
+            return {"result": "错误", "reason": f"{reason}{extra}"}
 
         # not_found：走 LLM + gov.cn 证据判断
         consistency_hint = ""

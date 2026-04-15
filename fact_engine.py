@@ -377,6 +377,13 @@ class FactEngine:
 
         evidence_map: dict[int, list[EvidenceItem]] = {}
 
+        # 信源白名单（include_domains 参数比 site: 字符串操作符更可靠）
+        GOV_DOMAINS = ["gov.cn"]
+        MEDIA_DOMAINS = [
+            "people.com.cn", "xinhuanet.com", "gmw.cn",
+            "cctv.com", "cnr.cn", "ce.cn", "china.com.cn", "chinadaily.com.cn",
+        ]
+
         def search_one(idx: int, query: str) -> tuple[int, list[EvidenceItem]]:
             fact = facts_with_queries[idx]["fact"]
 
@@ -386,63 +393,60 @@ class FactEngine:
                 check_chain = fact.context_hierarchy if is_village else f"{fact.context_hierarchy}/{fact.text}"
                 local_result, _ = self.geo.validate_chain(check_chain)
 
-                # 构造 Tavily 友好的查询词：取层级链首段（省）+ 末级地名，避免斜杠串
-                chain_parts = self.geo.parse_chain(fact.context_hierarchy)
-                province = chain_parts[0] if chain_parts else ""
-                geo_text = f"{province} {fact.text}".strip()
+                # 判错时不带稿件的（可能错误的）层级，只用地名本身搜索
+                # 判对/未定时才带省份增强相关性
+                if local_result == "invalid":
+                    geo_query = f"{fact.text} 行政区划 隶属"
+                else:
+                    chain_parts = self.geo.parse_chain(fact.context_hierarchy)
+                    province = chain_parts[0] if chain_parts else ""
+                    geo_query = f"{province} {fact.text} 行政区划".strip()
 
                 if local_result != "not_found":
-                    # 本地可判断：把国家统计局区划库作为权威首条，再用 Tavily 补齐
+                    # 本地可判断：国家统计局权威源打头，Tavily 补齐
                     items: list[EvidenceItem] = [GEO_AUTHORITY_SOURCE]
-                    items += self._tavily_search(f"{geo_text} 行政区划 site:gov.cn")
+                    items += self._tavily_search(geo_query, include_domains=GOV_DOMAINS)
                     if len(items) < 3:
-                        items += self._tavily_search(
-                            f"{geo_text} 行政区划 site:people.com.cn OR site:xinhuanet.com"
-                        )
+                        items += self._tavily_search(geo_query, include_domains=MEDIA_DOMAINS)
                     return idx, items[:3]
 
-                # 本地未命中（2024年后新设等）→ 定向搜索 gov.cn + 央媒
-                items = self._tavily_search(f"{geo_text} 行政区划 site:gov.cn")
-                if len(items) < 3:
-                    items += self._tavily_search(f"{fact.text} 撤县设区 site:gov.cn")
+                # 本地未命中（新设区划等）→ gov.cn 多查询 + 央媒兜底
+                items = self._tavily_search(geo_query, include_domains=GOV_DOMAINS)
                 if len(items) < 3:
                     items += self._tavily_search(
-                        f"{geo_text} 行政区划 site:people.com.cn OR site:xinhuanet.com"
+                        f"{fact.text} 撤县设区 设市", include_domains=GOV_DOMAINS,
                     )
+                if len(items) < 3:
+                    items += self._tavily_search(geo_query, include_domains=MEDIA_DOMAINS)
                 return idx, items[:3]
 
-            # geo 类型兜底：context_missing 或无上下文时，仍限定 gov.cn
+            # geo 类型兜底：context_missing 或无上下文时，仍限定权威信源
             if fact.type == "geo":
-                query = f"{fact.text} 行政区划 site:gov.cn"
-                items = self._tavily_search(query)
-                if not items:
-                    items = self._tavily_search(f"{fact.text} 行政区划调整 site:gov.cn")
-                return idx, items
+                items = self._tavily_search(
+                    f"{fact.text} 行政区划", include_domains=GOV_DOMAINS,
+                )
+                if len(items) < 3:
+                    items += self._tavily_search(
+                        f"{fact.text} 行政区划", include_domains=MEDIA_DOMAINS,
+                    )
+                return idx, items[:3]
 
             # number 类型：严格限定信源，不够3条则补搜央媒
             if fact.type == "number":
                 base_query = query
                 if fact.time_context and fact.time_context not in base_query:
                     base_query = f"{fact.time_context} {base_query}"
-                items = self._tavily_search(
-                    f"{base_query} site:gov.cn OR site:stats.gov.cn"
-                )
+                items = self._tavily_search(base_query, include_domains=GOV_DOMAINS)
                 if len(items) < 3:
-                    items += self._tavily_search(
-                        f"{base_query} site:people.com.cn OR site:xinhuanet.com"
-                    )
+                    items += self._tavily_search(base_query, include_domains=MEDIA_DOMAINS)
                 return idx, items[:3]
 
             # 其他类型：严格限定信源，不够3条则补搜央媒
             if fact.time_context and fact.time_context not in query:
                 query = f"{fact.time_context} {query}"
-            items = self._tavily_search(
-                f"{query} site:gov.cn"
-            )
+            items = self._tavily_search(query, include_domains=GOV_DOMAINS)
             if len(items) < 3:
-                items += self._tavily_search(
-                    f"{query} site:people.com.cn OR site:xinhuanet.com"
-                )
+                items += self._tavily_search(query, include_domains=MEDIA_DOMAINS)
             return idx, items[:3]
 
         with ThreadPoolExecutor(max_workers=5) as pool:
@@ -458,14 +462,22 @@ class FactEngine:
         progress(f"  → {found}/{len(facts_with_queries)} 条事实找到证据")
         return evidence_map
 
-    def _tavily_search(self, query: str) -> list[EvidenceItem]:
-        """单次 Tavily 搜索"""
+    def _tavily_search(
+        self,
+        query: str,
+        include_domains: list[str] | None = None,
+        max_results: int = 5,
+    ) -> list[EvidenceItem]:
+        """单次 Tavily 搜索。使用 include_domains 参数限定信源，比 site: 操作符更可靠。"""
         try:
-            resp = self.tavily.search(
-                query=query,
-                search_depth="advanced",
-                max_results=3,
-            )
+            kwargs = {
+                "query": query,
+                "search_depth": "advanced",
+                "max_results": max_results,
+            }
+            if include_domains:
+                kwargs["include_domains"] = include_domains
+            resp = self.tavily.search(**kwargs)
             return [
                 EvidenceItem(
                     title=r.get("title", ""),

@@ -399,37 +399,31 @@ class FactEngine:
                     items = self._tavily_search(f"{fact.text} 行政区划调整 site:gov.cn")
                 return idx, items
 
-            # number 类型：严格限定信源（仅政府/统计局/央媒）
+            # number 类型：严格限定信源，不够3条则补搜央媒
             if fact.type == "number":
                 base_query = query
                 if fact.time_context and fact.time_context not in base_query:
                     base_query = f"{fact.time_context} {base_query}"
-                # 第一级：政府/统计局
                 items = self._tavily_search(
                     f"{base_query} site:gov.cn OR site:stats.gov.cn"
                 )
-                if items:
-                    return idx, items
-                # 第二级：央媒
-                items = self._tavily_search(
-                    f"{base_query} site:people.com.cn OR site:xinhuanet.com"
-                )
-                return idx, items  # 无论是否命中都到此为止，不做泛搜
+                if len(items) < 3:
+                    items += self._tavily_search(
+                        f"{base_query} site:people.com.cn OR site:xinhuanet.com"
+                    )
+                return idx, items[:3]
 
-            # 其他类型（person/title/time/document）：严格限定信源
+            # 其他类型：严格限定信源，不够3条则补搜央媒
             if fact.time_context and fact.time_context not in query:
                 query = f"{fact.time_context} {query}"
-            # 第一级：政府网站
             items = self._tavily_search(
                 f"{query} site:gov.cn"
             )
-            if items:
-                return idx, items
-            # 第二级：央媒
-            items = self._tavily_search(
-                f"{query} site:people.com.cn OR site:xinhuanet.com"
-            )
-            return idx, items  # 不做泛搜，搜不到判"存疑"
+            if len(items) < 3:
+                items += self._tavily_search(
+                    f"{query} site:people.com.cn OR site:xinhuanet.com"
+                )
+            return idx, items[:3]
 
         with ThreadPoolExecutor(max_workers=5) as pool:
             futures = {

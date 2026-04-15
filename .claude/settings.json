@@ -18,7 +18,12 @@
       "Bash(curl -s http://59.110.152.9:8000/health)",
       "Bash(curl -s --connect-timeout 10 http://59.110.152.9:8000/health)",
       "Bash(python sync_server.py)",
-      "Bash(time curl:*)"
+      "Bash(time curl:*)",
+      "Bash(python -c \"import schemas; import fact_engine; print\\('import ok'\\)\")",
+      "Bash(python -X utf8 -c ':*)",
+      "Bash(python -X utf8 -c \"import sys; print\\(sys.stdin.read\\(\\)\\)\")",
+      "Bash(python -c \"import fact_engine; print\\('ok'\\)\")",
+      "Bash(python -c \"import fact_engine; print\\('import ok'\\)\")"
     ]
   }
 }

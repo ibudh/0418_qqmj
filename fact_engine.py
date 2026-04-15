@@ -196,16 +196,37 @@ class FactEngine:
 
         prompt = f"""你是一名资深新闻校对专家。请从稿件中提取需要核查的"硬事实"。
 
-## 只提取以下 6 类（其他一律跳过）
+## 原子分解原则
+
+一条事实中如果同时包含多个独立可核查点，必须拆成多条，每条只包含一个可核查断言。
+如果只有一个核查点，不要强行拆分。
+
+示例：
+原句："2010年，炕围画被列入第二批内蒙古自治区级非物质文化遗产名录。"
+应拆为 3 条：
+- "炕围画列入非遗名录的时间为2010年"（type=time，核查时间是否正确）
+- "炕围画属于内蒙古自治区级非遗"（type=regulation，核查归属省份是否正确）
+- "炕围画列入的是第二批非遗名录"（type=regulation，核查批次是否正确）
+
+不拆的情况：
+- "北京市副市长张伟" → 只有一个核查点（张伟是否是北京市副市长），不拆
+
+## 只提取以下 11 类（其他一律跳过）
 
 1. **person** — 人物姓名（是否存在、是否写错）
+   - 含身份信息（如人大代表、政协委员）
+   - 外国人名翻译是否准确
 2. **title** — 职务头衔（是否准确、是否过时）
+   - 领导人排序是否正确
    - 必须从上下文中提取该职务对应的时间，填入 time_context
    - 例如"2015年，时任副市长张伟" → time_context="2015年"
    - 例如"原市长李明" → time_context="往届/前任"
    - 如果是现任且无特定时间标记 → time_context 留空
 3. **time** — 时间日期（是否正确、是否矛盾）
-4. **geo** — 地名地点，**只提取有明确上下级关系的情形**：
+   - 重要事件时间
+   - 朝代、帝号纪年与公元纪年的换算
+   - 人物生卒年、名作名篇年代
+4. **geo** — 地名地点，**只提取有明确上下级关系的行政区划**：
    - 稿件中出现行政归属描述，如"XX省XX市XX县XX镇XX村"或"位于XX省的XX市"
    - context_hierarchy 填写斜杠分隔的完整上级链，必须包含稿件中声称的每一级，不能跳过中间层：
      正确："内蒙古自治区/呼伦贝尔市"（稿件说呼伦贝尔市）
@@ -222,6 +243,7 @@ class FactEngine:
    - **稿件内部地名矛盾检测**：如果同一地名在稿件不同位置出现了不同的上级归属（如标题写A市、正文写B市），
      必须将每处表述都作为独立的 geo 事实提取，各自保留原文的 context_hierarchy。系统会自动交叉核查。
 5. **number** — 数字数据（金额、比例、统计数据是否准确、前后是否矛盾）
+   - 注意单位是否正确（公斤/千克、亿元/万元）
    - 必须从上下文中提取该数据对应的时间，填入 time_context
    - 例如"2023年GDP同比增长5.2%" → time_context="2023年"
    - 如果无明确时间 → time_context 留空
@@ -234,7 +256,13 @@ class FactEngine:
        - {{"type": "sum_check", "total_label": "总量标签", "part_labels": ["分项1标签", "分项2标签"]}}
        - {{"type": "percent_sum", "part_labels": ["占比1标签", "占比2标签"], "max_sum": 100}}
      - 如果该数据没有关联数据（孤立数据点），related_numbers 和 math_relations 为空数组
-6. **document** — 文件文献名称（法规、报告、规划的名称是否完整准确）
+6. **regulation** — 法律法规、政策文件（名称是否完整准确、条文序号和内容是否正确）
+7. **organization** — 重要机构名称、重要会议名称、重要名词/提法/概念
+8. **literary** — 名人名作名篇（书名、作者、出处是否正确）
+9. **poem** — 诗文内容（诗词原文是否准确、作者和出处是否正确）
+   - 必须逐字核对原文，任何一字之差都应标记
+10. **quotation** — 引语引文（马恩列毛邓等著作引语、名言警句、俗语熟语是否准确）
+11. **media** — 歌曲名/歌词、影视剧名、重要节目栏目名
 
 ## 不提取的内容（直接跳过）
 
@@ -251,15 +279,16 @@ class FactEngine:
 提取时为每条事实标注 priority（数字越小越重要）：
 
 - **priority=1（必查）**：中央领导人、国家级机关（全国人大、国务院、中央各部委）、
-  国家级政策法规、全国性统计数据、国家级重大事件
-- **priority=2（重点查）**：省部级及以下各级官员、各级政府机构、政策文件、
-  统计数据、知名企业/高校/机构的关键信息、市县级官员与地方性数据
+  国家级政策法规、全国性统计数据、国家级重大事件、国际组织、外国领导人姓名及翻译
+- **priority=2（重点查）**：省部级官员及机构、省级政策文件、省级统计数据、
+  知名企业/高校/机构的关键信息
+- **priority=3（补充查）**：市县级官员与地方性数据、乡镇及以下事务
 
-优先提取 priority=1，再填充 priority=2，总数不超过 {max_facts} 条。
+优先提取 priority=1，再填充 priority=2，最后补充 priority=3，总数不超过 {max_facts} 条。
 
 ## 时间上下文（time_context）
 
-对 person、title、number、document 类型，必须从稿件上下文中提取事实对应的时间信息：
+对 person、title、number、regulation、organization、literary 类型，必须从稿件上下文中提取事实对应的时间信息：
 - 明确时间：如"2015年""2023年第三季度""任期2018-2022" → 填入具体时间
 - 历史/前任标记：如"原市长""时任""曾任" → 填"往届/前任"
 - 当前/无时间标记：留空（默认按当前时间核查）
@@ -282,14 +311,19 @@ class FactEngine:
       "query": "2023年北京市GDP增长率 统计局"}},
     {{"text": "朝阳区", "type": "geo", "priority": 2, "context_hierarchy": "北京市", "context_missing": false, "query": "北京市朝阳区行政区划"}},
     {{"text": "张家村", "type": "geo", "priority": 2, "context_hierarchy": "湖北省/十堰市/郧阳区/茶店镇", "context_missing": false, "query": "郧阳区茶店镇行政区划"}},
-    {{"text": "某地", "type": "geo", "priority": 2, "context_hierarchy": "", "context_missing": true, "query": "某地行政区划"}}
+    {{"text": "某地", "type": "geo", "priority": 2, "context_hierarchy": "", "context_missing": true, "query": "某地行政区划"}},
+    {{"text": "《中华人民共和国民法典》第184条", "type": "regulation", "priority": 1, "time_context": "", "query": "民法典第184条内容"}},
+    {{"text": "床前明月光，疑是地上霜", "type": "poem", "priority": 2, "time_context": "", "query": "李白 静夜思 原文"}}
   ]
 }}"""
 
         result = self._call_llm_json(prompt, article[:4000])
         raw = result.get("facts", [])
 
-        valid_types = {"person", "title", "time", "geo", "number", "document"}
+        valid_types = {
+            "person", "title", "time", "geo", "number",
+            "regulation", "organization", "literary", "poem", "quotation", "media",
+        }
         facts: list[dict] = []
         for item in raw:
             text = item.get("text", "").strip()
@@ -505,7 +539,12 @@ class FactEngine:
             "title": "职务头衔",
             "time": "时间日期",
             "geo": "地名地点",
-            "document": "文件文献名称",
+            "regulation": "法律法规",
+            "organization": "机构/会议/名词",
+            "literary": "名人名作",
+            "poem": "诗文内容",
+            "quotation": "引语/名言",
+            "media": "影视/歌曲/栏目",
         }
         label = type_labels.get(fact.type, "事实")
 

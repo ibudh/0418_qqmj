@@ -191,29 +191,29 @@
   {
     "id": "geo_022",
     "category": "新设区划",
-    "description": "已撤销区划：浙江省金华市浦江县（2023年划入义乌市）",
+    "description": "已撤销区划：浙江省金华市浦江县（2023年划入义乌市），应判错误",
     "article": "浙江省金华市浦江县水晶产业近年来加快转型升级。",
     "expect_extracted": true,
     "expect_context_hierarchy": "浙江省/金华市",
-    "expect_result": "存疑"
+    "expect_result": "错误"
   },
   {
     "id": "geo_023",
     "category": "context_missing",
-    "description": "稿件中仅出现地名无上下文，context_missing应为true，判存疑",
+    "description": "稿件中仅出现地名无上下文，context_missing应为true，判未搜到",
     "article": "记者从枫树岭镇了解到，当地乡村旅游发展势头良好，今年接待游客超过百万人次。",
     "expect_extracted": true,
     "expect_context_hierarchy": "",
-    "expect_result": "存疑"
+    "expect_result": "未搜到"
   },
   {
     "id": "geo_024",
     "category": "context_missing",
-    "description": "稿件中地名无上下文，判存疑",
+    "description": "稿件中地名无上下文，判未搜到",
     "article": "土默特左旗近年来积极推进农牧业现代化，粮食产量连续多年稳定增长。",
     "expect_extracted": true,
     "expect_context_hierarchy": "",
-    "expect_result": "存疑"
+    "expect_result": "未搜到"
   },
   {
     "id": "geo_025",
@@ -252,7 +252,7 @@
     "article": "北京市朝阳区文物部门近日完成了对辽代佛塔的修缮，该塔已有千年历史。",
     "expect_extracted": true,
     "expect_ch_contains": "北京",
-    "expect_result": "存疑"
+    "expect_result": "未搜到"
   },
   {
     "id": "geo_029",
@@ -287,7 +287,7 @@
   {
     "id": "geo_032",
     "category": "区划变更",
-    "description": "莱芜市2019年撤市设区，现为济南市莱芜区，写成莱芜市应存疑",
+    "description": "莱芜市2019年撤市设区，现为济南市莱芜区，写成莱芜市应未搜到",
     "article": "山东省济南市莱芜区近年来大力发展先进制造业，多个重点项目相继落地。",
     "expect_extracted": true,
     "expect_ch_contains": "济南",
@@ -296,20 +296,20 @@
   {
     "id": "geo_033",
     "category": "区划变更",
-    "description": "写成已撤销的莱芜市（地级市）应判错误或存疑",
+    "description": "写成已撤销的莱芜市（地级市），2019年已撤市并入济南，应判错误",
     "article": "山东省莱芜市钢铁产业今年产值突破千亿元，成为区域经济重要支柱。",
     "expect_extracted": true,
     "expect_ch_contains": "山东",
-    "expect_result": "存疑"
+    "expect_result": "错误"
   },
   {
     "id": "geo_034",
     "category": "区划变更",
-    "description": "蓬莱2020年撤市设区，现为烟台市蓬莱区，写成蓬莱市应存疑",
+    "description": "蓬莱2020年撤市设区，现为烟台市蓬莱区，写成蓬莱市应判错误",
     "article": "山东省烟台市蓬莱市葡萄酒产业今年迎来丰收，多个品种获国际大奖。",
     "expect_extracted": true,
     "expect_ch_contains": "烟台",
-    "expect_result": "存疑"
+    "expect_result": "错误"
   },
   {
     "id": "geo_035",
@@ -353,11 +353,11 @@
   {
     "id": "geo_039",
     "category": "真实错误",
-    "description": "林芝正确写法为林芝市（2015年撤地设市），写林芝地区应存疑",
+    "description": "林芝正确写法为林芝市（2015年撤地设市），写林芝地区应判错误",
     "article": "西藏自治区林芝地区近年来旅游业快速发展，成为藏东南重要旅游目的地。",
     "expect_extracted": true,
     "expect_ch_contains": "西藏",
-    "expect_result": "存疑"
+    "expect_result": "错误"
   },
   {
     "id": "geo_040",

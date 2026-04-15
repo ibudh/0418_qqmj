@@ -96,7 +96,7 @@ def check_verdict(case: dict, engine: FactEngine) -> tuple[bool, str]:
     # 找到 geo 类型的 item
     geo_items = [it for it in result.items if it.get("type") == "geo"]
     if not geo_items:
-        if expect_result in ("存疑", "通过", "错误"):
+        if expect_result in ("未搜到", "未检索", "通过", "错误"):
             return False, f"期望判断 {expect_result}，但未找到 geo 类型条目"
         return True, "未提取，符合预期"
 

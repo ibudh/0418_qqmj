@@ -134,7 +134,8 @@ class FactEngine:
             return CheckResponse(
                 risk_level="通过",
                 summary="未提取到需核查的硬事实。",
-                total_facts=0, error_count=0, doubt_count=0, pass_count=0,
+                total_facts=0, error_count=0, pass_count=0,
+                no_result_count=0, not_searched_count=0,
             )
         facts = [fq["fact"] for fq in facts_with_queries]
         _p(f"  → 提取到 {len(facts)} 条硬事实")
@@ -564,15 +565,18 @@ class FactEngine:
 
 ## 核查要求{time_rule}
 1. 将事实与证据逐一比对
-2. 证据明确否定 → "错误"
-3. 证据不足或有矛盾 → "存疑"
-4. 证据支持 → "通过"
-5. 无搜索结果 → "存疑"
+2. **证据与稿件陈述冲突 → "错误"**
+   - 即使证据没有直接否定，但关键要素（主体/时间/地点/级别）不一致即判错
+   - 例如：稿件说"X被列入内蒙古自治区级非遗"，证据显示"X是山西省非遗" → 判错误
+   - 例如：稿件说"2010年列入"，证据显示"2008年列入" → 判错误
+   - 不要以"证据未直接提及本稿件的说法"为由回避判断
+3. 证据明确支持 → "通过"
+4. gov.cn/央媒均无相关结果 → "未搜到"
 
 ## 输出格式（严格JSON）
 {{
-  "result": "错误/存疑/通过",
-  "reason": "一句话说明判断依据，引用具体证据",
+  "result": "错误/通过/未搜到",
+  "reason": "一句话说明判断依据，引用具体证据（指出冲突点）",
   "suggestion": "如果有误，给出修改建议；如果通过则为空"
 }}"""
 
@@ -622,13 +626,15 @@ class FactEngine:
    - 例如：前文说"总投资3亿元"，后文说"投资2.8亿元"
    - 例如：各分项之和 ≠ 总数
    - 例如：百分比之和超过100%
-3. 证据明确否定 或 内部矛盾 → "错误"
-4. 证据不足 → "存疑"
-5. 一致 → "通过"
+3. **证据与稿件数据冲突 或 内部矛盾 → "错误"**
+   - 即使数量级/口径略有不同，只要关键数字不一致即判错
+   - 例如：稿件"同比增长5.2%"，证据"同比增长4.8%" → 判错误
+4. 数据与权威证据一致 → "通过"
+5. gov.cn/统计局均无相关数据 → "未搜到"
 
 ## 输出格式（严格JSON）
 {{
-  "result": "错误/存疑/通过",
+  "result": "错误/通过/未搜到",
   "reason": "说明判断依据，内部矛盾需指出矛盾点",
   "suggestion": "如果有误，给出修改建议；如果通过则为空"
 }}"""
@@ -644,10 +650,10 @@ class FactEngine:
     ) -> dict:
         """地名专用验证：本地区划库优先，Tavily gov.cn 兜底，稿件内部一致性检查"""
 
-        # context_missing：无法判断上下级关系 → 存疑
+        # context_missing：无法判断上下级关系 → 未搜到
         if fact.context_missing or not fact.context_hierarchy:
             return {
-                "result": "存疑",
+                "result": "未搜到",
                 "reason": f"稿件中未明确'{fact.text}'的上级行政单位，无法核实层级关系，建议人工核查",
                 "suggestion": "请补全行政归属，如'XX省XX市XX区'",
             }
@@ -694,14 +700,14 @@ class FactEngine:
    （如标题写A市、正文写B市）→ 判"错误"，指出矛盾并给出正确归属
 2. **级别错位**：若证据显示 {fact.text} 的行政层级与 {fact.context_hierarchy} 不匹配
    （如直辖市直管区被误写为某市下辖）→ 判"错误"，给出正确归属
-3. **新旧交替**：若证据显示近年发生撤县设区/设市等变更
-   → 判"存疑"，注明变更依据和建议改法
+3. **新旧交替**：若证据显示近年发生撤县设区/设市等变更、且稿件仍用已撤销的旧名
+   → 判"错误"，给出正确新名
 4. **简称/全称/别称**：广东=广东省，均视为正确 → 判"通过"
-5. **证据不足**：gov.cn 无明确结论 → 判"存疑"
+5. **证据不足**：gov.cn 无明确结论 → 判"未搜到"
 
 ## 输出格式（严格JSON）
 {{
-  "result": "错误/存疑/通过",
+  "result": "错误/通过/未搜到",
   "reason": "一句话说明判断依据，引用证据中的关键信息",
   "suggestion": "如有误，给出具体修改建议；如通过则为空"
 }}"""
@@ -879,24 +885,24 @@ class FactEngine:
     ) -> CheckResponse:
 
         error_count = sum(1 for v in verified if v.result == "错误")
-        doubt_count = sum(1 for v in verified if v.result == "存疑")
         pass_count = sum(1 for v in verified if v.result == "通过")
+        no_result_count = sum(1 for v in verified if v.result == "未搜到")
+        not_searched_count = sum(1 for v in verified if v.result == "未检索")
 
         if error_count > 0:
             risk_level = "高危"
-        elif doubt_count > 0:
-            risk_level = "存疑"
         else:
             risk_level = "通过"
 
         summary = (
             f"共核查 {len(verified)} 条硬事实，"
-            f"发现 {error_count} 处错误、{doubt_count} 处存疑、{pass_count} 处通过。"
+            f"发现 {error_count} 处错误、{pass_count} 处通过、"
+            f"{no_result_count} 处未搜到、{not_searched_count} 处未检索。"
             f"\n\n—— 签前秒检 · rmrbtzk-v3 引擎"
         )
 
         # 按风险排序，保留原始索引以匹配 items_extra
-        order = {"错误": 0, "存疑": 1, "通过": 2}
+        order = {"错误": 0, "未搜到": 1, "未检索": 2, "通过": 3}
         indexed = sorted(enumerate(verified), key=lambda x: order.get(x[1].result, 3))
 
         items = [
@@ -908,6 +914,7 @@ class FactEngine:
                 "reason": v.reason,
                 "evidence_urls": v.evidence_urls,
                 "sources": v.sources,
+                "suggestion": v.suggestion,
                 "query_used": items_extra[i]["query_used"],
                 "evidence_found": items_extra[i]["evidence_found"],
                 "source_tier": items_extra[i]["source_tier"],
@@ -920,8 +927,9 @@ class FactEngine:
             summary=summary,
             total_facts=len(verified),
             error_count=error_count,
-            doubt_count=doubt_count,
             pass_count=pass_count,
+            no_result_count=no_result_count,
+            not_searched_count=not_searched_count,
             items=items,
             pipeline=pipeline,
         )
@@ -957,4 +965,4 @@ class FactEngine:
             return json.loads(res.choices[0].message.content)
         except Exception as e:
             logger.error(f"LLM JSON 调用失败: {e}")
-            return {"result": "存疑", "reason": f"API调用失败: {e}", "suggestion": ""}
+            return {"result": "未搜到", "reason": f"搜索接口异常: {e}", "suggestion": ""}

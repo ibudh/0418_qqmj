@@ -20,7 +20,7 @@ FactType = Literal[
     "person", "title", "time", "geo", "number",
     "regulation", "organization", "literary", "poem", "quotation", "media",
 ]
-VerifyResult = Literal["错误", "存疑", "通过"]
+VerifyResult = Literal["错误", "通过", "未搜到", "未检索"]
 
 
 @dataclass(frozen=True)
@@ -67,12 +67,13 @@ class VerifiedFact:
 
 @dataclass(frozen=True)
 class CheckResponse:
-    risk_level: str          # 高危 / 存疑 / 通过
+    risk_level: str          # 高危 / 通过
     summary: str
     total_facts: int
     error_count: int
-    doubt_count: int
     pass_count: int
+    no_result_count: int     # 搜了没搜到
+    not_searched_count: int  # 没搜
     items: list[dict] = field(default_factory=list)
     pipeline: dict = field(default_factory=dict)
     engine: str = "rmrbtzk-v3"

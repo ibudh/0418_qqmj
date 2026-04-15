@@ -914,7 +914,6 @@ class FactEngine:
                 "reason": v.reason,
                 "evidence_urls": v.evidence_urls,
                 "sources": v.sources,
-                "suggestion": v.suggestion,
                 "query_used": items_extra[i]["query_used"],
                 "evidence_found": items_extra[i]["evidence_found"],
                 "source_tier": items_extra[i]["source_tier"],

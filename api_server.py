@@ -41,7 +41,6 @@ class FactItem(BaseModel):
     reason: str
     evidence_urls: list[str] = []
     sources: list[dict] = []     # [{name: "人民网", url: "..."}, ...]
-    suggestion: str = ""
     query_used: str = ""
     evidence_found: int = 0
     source_tier: str = ""  # 信源层级：官方 / 央媒 / 其他

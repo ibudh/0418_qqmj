@@ -86,6 +86,14 @@ MAX_FACTS_SHORT = 5    # <500字
 MAX_FACTS_MEDIUM = 8   # 500-2000字
 MAX_FACTS_LONG = 10    # >2000字
 
+# 地名核查权威信源：国家统计局区划代码（本地库的上游数据源）
+GEO_AUTHORITY_SOURCE = EvidenceItem(
+    title="国家统计局·统计用区划代码和城乡划分代码",
+    url="https://www.stats.gov.cn/sj/tjbz/tjyqhdmhcxhfdm/2023/",
+    snippet="国家统计局发布的最新年度县级以上行政区划代码（每年更新）",
+    source_name="国家统计局",
+)
+
 
 class FactEngine:
     """事实核查引擎 v3：精准提取 → 并行搜索 → 并行验证"""
@@ -377,21 +385,30 @@ class FactEngine:
                 is_village = len(self.geo.parse_chain(fact.context_hierarchy)) >= 3
                 check_chain = fact.context_hierarchy if is_village else f"{fact.context_hierarchy}/{fact.text}"
                 local_result, _ = self.geo.validate_chain(check_chain)
+
+                # 构造 Tavily 友好的查询词：取层级链首段（省）+ 末级地名，避免斜杠串
+                chain_parts = self.geo.parse_chain(fact.context_hierarchy)
+                province = chain_parts[0] if chain_parts else ""
+                geo_text = f"{province} {fact.text}".strip()
+
                 if local_result != "not_found":
-                    # 本地可判断，补搜 gov.cn 提供真实链接
-                    geo_query = f"{fact.context_hierarchy} {fact.text} 行政区划 site:gov.cn"
-                    items = self._tavily_search(geo_query)
+                    # 本地可判断：把国家统计局区划库作为权威首条，再用 Tavily 补齐
+                    items: list[EvidenceItem] = [GEO_AUTHORITY_SOURCE]
+                    items += self._tavily_search(f"{geo_text} 行政区划 site:gov.cn")
                     if len(items) < 3:
                         items += self._tavily_search(
-                            f"{fact.text} 行政区划 site:people.com.cn OR site:xinhuanet.com"
+                            f"{geo_text} 行政区划 site:people.com.cn OR site:xinhuanet.com"
                         )
                     return idx, items[:3]
 
-                # 本地未命中（2024年后新设等）→ 定向搜索 gov.cn
-                query = f"{fact.context_hierarchy} {fact.text} 行政区划 site:gov.cn"
-                items = self._tavily_search(query)
+                # 本地未命中（2024年后新设等）→ 定向搜索 gov.cn + 央媒
+                items = self._tavily_search(f"{geo_text} 行政区划 site:gov.cn")
                 if len(items) < 3:
                     items += self._tavily_search(f"{fact.text} 撤县设区 site:gov.cn")
+                if len(items) < 3:
+                    items += self._tavily_search(
+                        f"{geo_text} 行政区划 site:people.com.cn OR site:xinhuanet.com"
+                    )
                 return idx, items[:3]
 
             # geo 类型兜底：context_missing 或无上下文时，仍限定 gov.cn

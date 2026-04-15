@@ -23,58 +23,37 @@ from geo_lookup import GeoLookup
 
 logger = logging.getLogger(__name__)
 
-# ── 站点名映射 ──
-_SITE_NAMES: dict[str, str] = {
-    "people.com.cn": "人民网",
-    "xinhuanet.com": "新华网",
-    "xinhua.org": "新华社",
-    "cctv.com": "央视网",
-    "cctvnews.cctv.com": "央视新闻",
-    "gmw.cn": "光明网",
-    "cnr.cn": "央广网",
-    "china.com.cn": "中国网",
-    "chinadaily.com.cn": "中国日报",
-    "ce.cn": "中国经济网",
-    "youth.cn": "中国青年网",
-    "stats.gov.cn": "国家统计局",
-    "moe.gov.cn": "教育部",
-    "ndrc.gov.cn": "国家发改委",
-    "mfa.gov.cn": "外交部",
-    "mod.gov.cn": "国防部",
-    "nhc.gov.cn": "国家卫健委",
-    "samr.gov.cn": "国家市场监管总局",
-    "miit.gov.cn": "工业和信息化部",
-    "mofcom.gov.cn": "商务部",
-    "mof.gov.cn": "财政部",
-    "pbc.gov.cn": "中国人民银行",
-    "court.gov.cn": "最高人民法院",
-    "spp.gov.cn": "最高人民检察院",
-    "npc.gov.cn": "全国人大",
-    "cppcc.gov.cn": "全国政协",
-    "baidu.com": "百度百科",
-    "wikipedia.org": "维基百科",
+# ── 站点名三分类：国家统计局 / 央媒 / 政府网 ──
+_CENTRAL_MEDIA_DOMAINS = {
+    "people.com.cn", "xinhuanet.com", "news.cn", "xinhua.org",
+    "cctv.com", "cctvnews.cctv.com", "cnr.cn", "gmw.cn",
+    "china.com.cn", "chinadaily.com.cn", "ce.cn", "youth.cn",
 }
 
 
 def _get_site_name(url: str) -> str:
-    """从 URL 提取可读站点名"""
+    """从 URL 提取可读站点名，三分类：国家统计局 / 央媒 / 政府网；其他回退主域名"""
     try:
         from urllib.parse import urlparse
-        host = urlparse(url).netloc.lower().lstrip("www.")
-        # 精确匹配
-        if host in _SITE_NAMES:
-            return _SITE_NAMES[host]
-        # 子域名匹配（如 news.people.com.cn → 人民网）
-        for domain, name in _SITE_NAMES.items():
-            if host.endswith("." + domain):
-                return name
-        # gov.cn 兜底：提取二级域名作为机构名
-        if host.endswith(".gov.cn"):
-            parts = host.split(".")
-            if len(parts) >= 3:
-                return f"{parts[-3].upper()} 政府网"
-            return "政府官网"
-        # 其他：取主域名
+        host = urlparse(url).netloc.lower()
+        if host.startswith("www."):
+            host = host[4:]
+        # 1) 国家统计局（特例，优先判断）
+        if host == "stats.gov.cn" or host.endswith(".stats.gov.cn"):
+            return "国家统计局"
+        # 2) 央媒
+        for dom in _CENTRAL_MEDIA_DOMAINS:
+            if host == dom or host.endswith("." + dom):
+                return "央媒"
+        # 3) 政府网（中央与地方统一归类）
+        if host == "gov.cn" or host.endswith(".gov.cn"):
+            return "政府网"
+        # 4) 百科
+        if host == "baidu.com" or host.endswith(".baidu.com"):
+            return "百度百科"
+        if host == "wikipedia.org" or host.endswith(".wikipedia.org"):
+            return "维基百科"
+        # 5) 其他：取主域名兜底
         parts = host.split(".")
         return parts[-2] if len(parts) >= 2 else host
     except Exception:
@@ -82,6 +61,10 @@ def _get_site_name(url: str) -> str:
 
 
 # 根据稿件长度决定最大提取条数
+class TavilyFatalError(RuntimeError):
+    """Tavily 致命错误（额度耗尽 / 无效 Key / 认证失败）——核查应立即中止。"""
+
+
 MAX_FACTS_SHORT = 5    # <500字
 MAX_FACTS_MEDIUM = 8   # 500-2000字
 MAX_FACTS_LONG = 10    # >2000字
@@ -468,7 +451,11 @@ class FactEngine:
         include_domains: list[str] | None = None,
         max_results: int = 5,
     ) -> list[EvidenceItem]:
-        """单次 Tavily 搜索。使用 include_domains 参数限定信源，比 site: 操作符更可靠。"""
+        """单次 Tavily 搜索。使用 include_domains 参数限定信源，比 site: 操作符更可靠。
+
+        致命错误（额度耗尽 / 无效 Key / 认证失败）会抛 TavilyFatalError，
+        让上层停止整个核查并返回明确错误，避免所有事实被误判为"未搜到"。
+        """
         try:
             kwargs = {
                 "query": query,
@@ -488,6 +475,20 @@ class FactEngine:
                 for r in resp.get("results", [])
             ]
         except Exception as e:
+            msg = str(e).lower()
+            fatal_markers = (
+                "usage limit",
+                "exceeds your plan",
+                "invalid api key",
+                "unauthorized",
+                "forbidden",
+                "401",
+                "403",
+                "429",
+            )
+            if any(m in msg for m in fatal_markers):
+                logger.error(f"Tavily 致命错误，中止核查 [{query}]: {e}")
+                raise TavilyFatalError(str(e)) from e
             logger.warning(f"搜索失败 [{query}]: {e}")
             return []
 

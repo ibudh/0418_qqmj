@@ -11,7 +11,7 @@ from dataclasses import asdict
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
-from fact_engine import FactEngine
+from fact_engine import FactEngine, TavilyFatalError
 
 logging.basicConfig(
     level=logging.INFO,
@@ -78,6 +78,12 @@ async def check_facts(req: ArticleRequest) -> CheckFactsResponse:
     try:
         result = engine.check(req.content)
         return CheckFactsResponse(**asdict(result))
+    except TavilyFatalError as e:
+        logging.error(f"Tavily 搜索服务不可用: {e}")
+        raise HTTPException(
+            status_code=503,
+            detail=f"搜索服务不可用（Tavily API 额度耗尽或 Key 失效）：{str(e)}。请更换或充值 API Key 后重试。",
+        )
     except Exception as e:
         logging.error(f"核查失败: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"核查过程出错: {str(e)}")

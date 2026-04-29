@@ -7,19 +7,21 @@
 from __future__ import annotations
 
 import json
+import re
 import time
 import logging
+import requests
 from typing import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from openai import OpenAI
-from tavily import TavilyClient
 
 import config
 from schemas import (
     AtomicFact, EvidenceItem, VerifiedFact, CheckResponse,
 )
 from geo_lookup import GeoLookup
+from gold_standard import GoldStandard
 
 logger = logging.getLogger(__name__)
 
@@ -95,8 +97,10 @@ class FactEngine:
             api_key=config.DEEPSEEK_API_KEY,
             base_url=config.BASE_URL,
         )
-        self.tavily = TavilyClient(api_key=config.TAVILY_API_KEY)
+        self._bocha_key = config.BOCHA_API_KEY
+        self._baidu_key = config.BAIDU_API_KEY
         self.geo = GeoLookup(config.GEO_DATA_PATH)
+        self.gold = GoldStandard(config.DATA_DIR)
 
     # ======================================================
     # 公开接口
@@ -139,35 +143,79 @@ class FactEngine:
         facts = [fq["fact"] for fq in facts_with_queries]
         _p(f"  → 提取到 {len(facts)} 条硬事实")
 
-        # Step 2: 并行搜索证据（搜不到自动补搜一次）
+        # Step 1.5: 金标准前置核查（命中则直接判定，跳过联网）
+        gs_verified: dict[int, VerifiedFact] = {}
+        pending_indices: list[int] = []
+        for i, fq in enumerate(facts_with_queries):
+            gs = self.gold.verify(fq["fact"], article)
+            if gs is not None:
+                gs_verified[i] = VerifiedFact(
+                    fact=fq["fact"].text,
+                    fact_type=fq["fact"].type,
+                    result=gs["result"],
+                    reason=gs["reason"],
+                    evidence_urls=[],
+                    sources=[{"name": gs["source"], "url": ""}],
+                    suggestion=gs.get("suggestion", ""),
+                    priority=fq["fact"].priority,
+                )
+            else:
+                pending_indices.append(i)
+        gs_hit = len(gs_verified)
+        _p(f"  → 金标准命中 {gs_hit} 条，{len(pending_indices)} 条走联网核查")
+
+        # 判断稿件是否为村级新闻，若是则找县级官网域名供后续定向搜索
+        county_gov_domain = "gov.cn"
+        for fq in facts_with_queries:
+            f = fq["fact"]
+            if f.type == "geo" and f.context_hierarchy:
+                parts = [p for p in f.context_hierarchy.split("/") if p]
+                if len(parts) >= 3:  # 含省/市/县三级 → 村级新闻
+                    county_name = parts[-1]  # 县/旗名
+                    _p(f"  → 检测到村级稿件，正在查找【{county_name}】政府官网...")
+                    county_gov_domain = self._find_county_gov_domain(county_name)
+                    _p(f"  → 定向搜索域名：{county_gov_domain}")
+                    break
+
+        # Step 2: 仅对未命中条目联网搜索
+        pending_fqs = [facts_with_queries[i] for i in pending_indices]
         _p("Step 2/3 · 正在并行联网搜索证据...")
         t1 = time.time()
-        evidence_map = self._step2_parallel_search(facts_with_queries, _p)
+        evidence_map = self._step2_parallel_search(pending_fqs, _p, county_gov_domain) if pending_fqs else {}
         t2_cost = round(time.time() - t1, 1)
         evidence_found = sum(1 for v in evidence_map.values() if v)
 
-        # 构建 number_context 映射（仅 number 类型有）
+        # 构建 number_context 映射（仅 number 类型有，按 pending 本地索引）
         number_context_map = {
-            i: fq["number_context"]
-            for i, fq in enumerate(facts_with_queries)
+            j: fq["number_context"]
+            for j, fq in enumerate(pending_fqs)
             if "number_context" in fq
         }
 
-        # Step 3: 并行验证
+        # Step 3: 仅对未命中条目并行验证
+        pending_facts = [fq["fact"] for fq in pending_fqs]
         _p("Step 3/3 · 正在并行验证...")
         t2 = time.time()
-        verified = self._step3_parallel_verify(
-            facts, evidence_map, article, _p, number_context_map,
-        )
+        verified_pending = self._step3_parallel_verify(
+            pending_facts, evidence_map, article, _p, number_context_map,
+        ) if pending_fqs else []
         t3_cost = round(time.time() - t2, 1)
+
+        # 按原始顺序合并金标准结果 + 联网核查结果
+        pending_result_map = {pending_indices[j]: verified_pending[j] for j in range(len(pending_indices))}
+        verified = [
+            gs_verified[i] if i in gs_verified else pending_result_map[i]
+            for i in range(len(facts_with_queries))
+        ]
 
         total_cost = round(time.time() - t_total, 1)
 
         # 构建流水线追踪数据
         pipeline = {
             "step1_extract": f"从稿件中提取了{len(facts)}条原子事实并生成搜索词（耗时{t1_cost}秒）",
-            "step2_search": f"并行搜索{len(facts)}条事实，{evidence_found}条找到证据（耗时{t2_cost}秒）",
-            "step3_verify": f"并行验证{len(facts)}条事实（耗时{t3_cost}秒）",
+            "step1_5_gold": f"金标准前置核查：命中{gs_hit}条，跳过联网",
+            "step2_search": f"并行搜索{len(pending_fqs)}条事实，{evidence_found}条找到证据（耗时{t2_cost}秒）",
+            "step3_verify": f"并行验证{len(pending_fqs)}条事实（耗时{t3_cost}秒）",
             "total_time": f"{total_cost}秒",
             "fact_types": {f.type: 0 for f in facts},
         }
@@ -175,14 +223,22 @@ class FactEngine:
             pipeline["fact_types"][f.type] += 1
 
         # 在 items 里加入搜索词、证据数量和来源层级
+        pending_ev_iter = {pending_indices[j]: evidence_map.get(j, []) for j in range(len(pending_indices))}
         items_extra = []
         for i, fq in enumerate(facts_with_queries):
-            evidence_items = evidence_map.get(i, [])
-            items_extra.append({
-                "query_used": fq["query"],
-                "evidence_found": len(evidence_items),
-                "source_tier": self._classify_source_tier(evidence_items),
-            })
+            if i in gs_verified:
+                items_extra.append({
+                    "query_used": fq["query"],
+                    "evidence_found": 0,
+                    "source_tier": "金标准",
+                })
+            else:
+                evidence_items = pending_ev_iter.get(i, [])
+                items_extra.append({
+                    "query_used": fq["query"],
+                    "evidence_found": len(evidence_items),
+                    "source_tier": self._classify_source_tier(evidence_items),
+                })
 
         return self._build_response(verified, pipeline, items_extra)
 
@@ -245,6 +301,7 @@ class FactEngine:
 - **普通市民、村民、农民等个人**（如"村民张某""市民李女士"）的姓名或一般性描述
 - **无名村庄、普通自然村**的一般性事务（如"某村修了一条路"）
 - 匿名消息来源（如"知情人士表示""业内人士透露"）
+- **代词/指代词**（"该村""该市""该县""该项目""该公司""该景区"等）：必须先从上下文中解析出具体名称，将 text 和 query 都替换为该实际名称后再提取；若稿件中找不到对应的明确名称，直接跳过，不提取此条事实
 
 ## 主体级别与优先级
 
@@ -330,6 +387,7 @@ class FactEngine:
         self,
         facts_with_queries: list[dict],
         progress: Callable[[str], None],
+        county_gov_domain: str = "gov.cn",
     ) -> dict[int, list[EvidenceItem]]:
 
         evidence_map: dict[int, list[EvidenceItem]] = {}
@@ -337,65 +395,68 @@ class FactEngine:
         def search_one(idx: int, query: str) -> tuple[int, list[EvidenceItem]]:
             fact = facts_with_queries[idx]["fact"]
 
-            # geo 类型：先走本地区划库，命中则直接返回空证据列表（验证阶段走本地逻辑）
+            # geo 类型分两轨：
+            #   省/市/县/镇 → 本地库权威判定，不走网络
+            #   村级        → 本地库无村数据，直接 gov.cn
             if fact.type == "geo" and not fact.context_missing and fact.context_hierarchy:
-                is_village = len(self.geo.parse_chain(fact.context_hierarchy)) >= 3
-                check_chain = fact.context_hierarchy if is_village else f"{fact.context_hierarchy}/{fact.text}"
-                local_result, _ = self.geo.validate_chain(check_chain)
-                if local_result != "not_found":
-                    # 本地可判断，返回数据库来源作为证据
+                chain_parts = [p for p in fact.context_hierarchy.split("/") if p]
+                is_village = len(chain_parts) >= 3  # context_hierarchy 含省/市/县三级 → 村级
+
+                if not is_village:
+                    # 非村级：只查本地库，结果交给 Step 3 判定（valid/invalid/not_found 均在那里处理）
                     return idx, [EvidenceItem(
                         title="国家统计局统计用区划代码（2023年）",
-                        url="https://www.stats.gov.cn/sj/tjbz/tjyqhdmhcxhfdm/",
+                        url="",
                         snippet="基于国家统计局2023年度统计用区划代码库进行本地精确匹配验证。",
                     )]
 
-                # 本地未命中（2024年后新设等）→ 定向搜索 gov.cn
-                query = f"{fact.context_hierarchy} {fact.text} 行政区划 site:gov.cn"
-                items = self._tavily_search(query)
+                # 村级：用已查好的县级政府域名定向搜
+                gate_entity = chain_parts[-1]
+                query = f"{fact.text} 行政村 村委会 site:{county_gov_domain}"
+                items = self._entity_gate(self._search(query), gate_entity)
                 if not items:
-                    items = self._tavily_search(f"{fact.text} 撤县设区 site:gov.cn")
+                    items = self._entity_gate(
+                        self._search(f"{gate_entity} {fact.text} 行政村 site:gov.cn"),
+                        gate_entity,
+                    )
                 return idx, items
 
             # geo 类型兜底：context_missing 或无上下文时，仍限定 gov.cn
             if fact.type == "geo":
                 query = f"{fact.text} 行政区划 site:gov.cn"
-                items = self._tavily_search(query)
+                items = self._entity_gate(self._search(query), fact.text)
                 if not items:
-                    items = self._tavily_search(f"{fact.text} 行政区划调整 site:gov.cn")
+                    items = self._entity_gate(
+                        self._search(f"{fact.text} 行政区划调整 site:gov.cn"), fact.text
+                    )
                 return idx, items
 
-            # number 类型：严格限定信源（仅政府/统计局/央媒）
+            # number / 其他类型：村级稿件优先搜县级官网，否则搜全量 gov.cn
             if fact.type == "number":
                 base_query = query
                 if fact.time_context and fact.time_context not in base_query:
                     base_query = f"{fact.time_context} {base_query}"
-                # 第一级：政府/统计局
-                items = self._tavily_search(
-                    f"{base_query} site:gov.cn OR site:stats.gov.cn"
-                )
-                if items:
-                    return idx, items
-                # 第二级：央媒
-                items = self._tavily_search(
-                    f"{base_query} site:people.com.cn OR site:xinhuanet.com"
-                )
-                return idx, items  # 无论是否命中都到此为止，不做泛搜
+                entity_hint = fact.text + " " + base_query
+            else:
+                if fact.time_context and fact.time_context not in query:
+                    query = f"{fact.time_context} {query}"
+                base_query = query
+                entity_hint = fact.text + " " + query
 
-            # 其他类型（person/title/time/document）：严格限定信源
-            if fact.time_context and fact.time_context not in query:
-                query = f"{fact.time_context} {query}"
-            # 第一级：政府网站
-            items = self._tavily_search(
-                f"{query} site:gov.cn"
+            # 第一级：县级官网（村级稿件）或全量 gov.cn
+            primary_site = county_gov_domain if county_gov_domain != "gov.cn" else "gov.cn OR site:stats.gov.cn"
+            items = self._entity_gate(
+                self._search(f"{base_query} site:{primary_site}"),
+                entity_hint,
             )
             if items:
                 return idx, items
             # 第二级：央媒
-            items = self._tavily_search(
-                f"{query} site:people.com.cn OR site:xinhuanet.com"
+            items = self._entity_gate(
+                self._search(f"{base_query} site:people.com.cn OR site:xinhuanet.com"),
+                entity_hint,
             )
-            return idx, items  # 不做泛搜，搜不到判"存疑"
+            return idx, items
 
         with ThreadPoolExecutor(max_workers=5) as pool:
             futures = {
@@ -410,26 +471,121 @@ class FactEngine:
         progress(f"  → {found}/{len(facts_with_queries)} 条事实找到证据")
         return evidence_map
 
-    def _tavily_search(self, query: str) -> list[EvidenceItem]:
-        """单次 Tavily 搜索"""
+    def _bocha_search(self, query: str) -> list[EvidenceItem]:
+        """博查搜索"""
         try:
-            resp = self.tavily.search(
-                query=query,
-                search_depth="advanced",
-                max_results=3,
+            resp = requests.post(
+                "https://api.bochaai.com/v1/web-search",
+                headers={
+                    "Authorization": f"Bearer {self._bocha_key}",
+                    "Content-Type": "application/json",
+                },
+                json={"query": query, "freshness": "noLimit", "summary": False, "count": 5},
+                timeout=10,
             )
+            resp.raise_for_status()
+            pages = resp.json().get("data", {}).get("webPages", {}).get("value", [])
+            return [
+                EvidenceItem(
+                    title=p.get("name", ""),
+                    url=p.get("url", ""),
+                    snippet=p.get("snippet", "")[:500],
+                    source_name=_get_site_name(p.get("url", "")),
+                )
+                for p in pages
+            ]
+        except Exception as e:
+            logger.warning(f"博查搜索失败 [{query}]: {e}")
+            return []
+
+    @staticmethod
+    def _parse_site_filter(query: str) -> tuple[str, list[str]]:
+        """从 query 中提取 site: 过滤器，返回 (干净的查询词, [域名列表])"""
+        sites = re.findall(r"site:(\S+)", query)
+        clean = re.sub(r"\s+OR\s+site:\S+", "", query)
+        clean = re.sub(r"\s*site:\S+", "", clean).strip()
+        return clean, sites
+
+    def _find_county_gov_domain(self, county_name: str) -> str:
+        """搜索县/旗级人民政府官网域名，返回如 tumotezuoqi.gov.cn；失败则返回 gov.cn。"""
+        from urllib.parse import urlparse
+        results = self._bocha_search(f"{county_name} 人民政府 官方网站 site:gov.cn")
+        for r in results:
+            netloc = urlparse(r.url).netloc.lower()
+            # 排除纯 gov.cn / *.省.gov.cn 等上级域，取最接近县级的子域名
+            if netloc.endswith(".gov.cn") and netloc.count(".") >= 2:
+                return netloc
+        return "gov.cn"
+
+    @staticmethod
+    def _entity_gate(items: list[EvidenceItem], fact_text: str) -> list[EvidenceItem]:
+        """实体命中门控：若所有结果的 title+snippet 均不包含事实核心实体，视为无关，丢弃。
+        只对能提取到 3 字以上中文词的事实启用，避免误伤短事实或纯英文/数字事实。
+        """
+        tokens = re.findall(r"[一-鿿]{3,}", fact_text)
+        if not tokens or not items:
+            return items
+        def _hit(item: EvidenceItem) -> bool:
+            haystack = item.title + " " + item.snippet
+            return any(t in haystack for t in tokens)
+        filtered = [it for it in items if _hit(it)]
+        if not filtered:
+            logger.debug("实体门控丢弃%d条无关结果（实体词：%s）", len(items), tokens[:3])
+        return filtered
+
+    def _baidu_search(self, query: str) -> list[EvidenceItem]:
+        """百度 AI 搜索（博查无结果时的回退）"""
+        clean_query, sites = self._parse_site_filter(query)
+        if not sites:
+            sites = ["gov.cn", "people.com.cn", "xinhuanet.com", "xinhua.org"]
+        try:
+            resp = requests.post(
+                "https://qianfan.baidubce.com/v2/ai_search/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {self._baidu_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "messages": [{"role": "user", "content": clean_query}],
+                    "model": "ernie-4.5-turbo-128k",
+                    "max_completion_tokens": 512,
+                    "search_source": "baidu_search_v2",
+                    "resource_type_filter": [{"type": "web", "top_k": 5}],
+                    "search_filter": {"match": {"site": sites}},
+                    "stream": False,
+                    "enable_corner_markers": False,
+                },
+                timeout=20,
+            )
+            resp.raise_for_status()
+            refs = resp.json().get("references", [])
             return [
                 EvidenceItem(
                     title=r.get("title", ""),
                     url=r.get("url", ""),
                     snippet=r.get("content", "")[:500],
-                    source_name=_get_site_name(r.get("url", "")),
+                    source_name=r.get("website", _get_site_name(r.get("url", ""))),
                 )
-                for r in resp.get("results", [])
+                for r in refs
             ]
         except Exception as e:
-            logger.warning(f"搜索失败 [{query}]: {e}")
+            logger.warning(f"百度搜索失败 [{query}]: {e}")
             return []
+
+    def _search(self, query: str) -> list[EvidenceItem]:
+        """博查优先，无结果时回退百度；结果严格过滤到 site: 指定域名"""
+        _, allowed = self._parse_site_filter(query)
+
+        def _filter(items: list[EvidenceItem]) -> list[EvidenceItem]:
+            if not allowed:
+                return items
+            return [it for it in items if any(d in it.url for d in allowed)]
+
+        items = _filter(self._bocha_search(query))
+        if not items:
+            logger.info(f"博查无合规结果，回退百度 [{query[:40]}]")
+            items = _filter(self._baidu_search(query))
+        return items
 
     # ======================================================
     # Step 3: 并行验证
@@ -607,7 +763,7 @@ class FactEngine:
         evidence_items: list[EvidenceItem],
         article: str,
     ) -> dict:
-        """地名专用验证：本地区划库优先，Tavily gov.cn 兜底，稿件内部一致性检查"""
+        """地名专用验证：本地区划库优先，博查/百度 gov.cn 兜底，稿件内部一致性检查"""
 
         # context_missing：无法判断上下级关系 → 存疑
         if fact.context_missing or not fact.context_hierarchy:
@@ -643,33 +799,35 @@ class FactEngine:
             extra = f"；此外稿件内部也存在矛盾：{consistency_issue}" if consistency_issue else ""
             return {"result": "错误", "reason": f"{reason}{extra}", "suggestion": "请核实行政归属"}
 
-        # not_found：走 LLM + gov.cn 证据判断
-        consistency_hint = ""
-        if consistency_issue:
-            consistency_hint = f"\n【稿件内部矛盾】：{consistency_issue}\n"
+        if not is_village_fact:
+            # 非村级：本地库 not_found 直接报错，不走网络搜索
+            extra = f"；稿件内部也存在矛盾：{consistency_issue}" if consistency_issue else ""
+            return {
+                "result": "错误",
+                "reason": f"本地区划库（国家统计局2023年）无【{check_chain}】的记录，该行政归属可能有误{extra}",
+                "suggestion": "请核实行政归属是否正确",
+            }
 
-        prompt = f"""你是一名严谨的新闻校对专家，专职核查行政区划准确性。
+        # 村级 not_found：本地库无村数据，用 gov.cn 证据 + LLM 判定
+        consistency_hint = f"\n【稿件内部矛盾】：{consistency_issue}\n" if consistency_issue else ""
 
-【待核查地名】：{fact.text}
+        prompt = f"""你是一名严谨的新闻校对专家，专职核查村级行政归属准确性。
+
+【待核查村名】：{fact.text}
 【稿件中标注的上级】：{fact.context_hierarchy}{consistency_hint}
 【gov.cn 搜索证据】：
 {evidence}
 
-## 核查规则（严格按优先级执行）
-
-1. **稿件内部矛盾**：若稿件中同一地名在不同位置出现了不同的上级归属
-   （如标题写A市、正文写B市）→ 判"错误"，指出矛盾并给出正确归属
-2. **级别错位**：若证据显示 {fact.text} 的行政层级与 {fact.context_hierarchy} 不匹配
-   （如直辖市直管区被误写为某市下辖）→ 判"错误"，给出正确归属
-3. **新旧交替**：若证据显示近年发生撤县设区/设市等变更
-   → 判"存疑"，注明变更依据和建议改法
-4. **简称/全称/别称**：广东=广东省，均视为正确 → 判"通过"
-5. **证据不足**：gov.cn 无明确结论 → 判"存疑"
+## 核查规则
+1. 证据明确显示该村属于稿件所写的县/旗/区 → 判"通过"
+2. 证据显示该村属于其他县/旗/区 → 判"错误"，给出正确归属
+3. 稿件内部不同位置对同一村的归属表述矛盾 → 判"错误"
+4. 证据不足或未提及该村 → 判"存疑"
 
 ## 输出格式（严格JSON）
 {{
   "result": "错误/存疑/通过",
-  "reason": "一句话说明判断依据，引用证据中的关键信息",
+  "reason": "一句话说明判断依据",
   "suggestion": "如有误，给出具体修改建议；如通过则为空"
 }}"""
 

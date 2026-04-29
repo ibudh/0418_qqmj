@@ -5,10 +5,19 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
+import os
+import webbrowser
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
 
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from fact_engine import FactEngine
@@ -18,14 +27,29 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s",
 )
 
+# 启动时初始化引擎（只初始化一次）
+engine = FactEngine()
+_executor = ThreadPoolExecutor(max_workers=4)
+
+_static_dir = os.path.join(os.path.dirname(__file__), "static")
+os.makedirs(_static_dir, exist_ok=True)
+
+
+@asynccontextmanager
+async def _lifespan(_: FastAPI):
+    await asyncio.sleep(0.3)
+    webbrowser.open("http://localhost:8000")
+    yield
+
+
 app = FastAPI(
     title="签前秒检 API",
     description="事实核查引擎：原子分解 → 分类 → HyDE搜索 → 验证 → 报告",
     version="2.0",
+    lifespan=_lifespan,
 )
 
-# 启动时初始化引擎（只初始化一次）
-engine = FactEngine()
+app.mount("/static", StaticFiles(directory=_static_dir), name="static")
 
 
 # ── 请求/响应模型（Pydantic，用于 API 文档和校验）──
@@ -70,7 +94,7 @@ async def check_facts(req: ArticleRequest) -> CheckFactsResponse:
     1. 原子事实分解
     2. 分类打标
     3. HyDE 搜索词生成
-    4. Tavily 多角度搜索
+    4. 博查/百度双引擎搜索
     5. 分类型验证判断
     6. 结构化输出
     """
@@ -80,6 +104,52 @@ async def check_facts(req: ArticleRequest) -> CheckFactsResponse:
     except Exception as e:
         logging.error(f"核查失败: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"核查过程出错: {str(e)}")
+
+
+@app.get("/", response_class=HTMLResponse)
+async def index() -> HTMLResponse:
+    path = os.path.join(_static_dir, "index.html")
+    with open(path, encoding="utf-8") as f:
+        return HTMLResponse(f.read())
+
+
+@app.post("/check/stream")
+async def check_stream(req: ArticleRequest) -> StreamingResponse:
+    """SSE 流式核查端点：实时推送进度，最后推送完整结果。"""
+    queue: asyncio.Queue = asyncio.Queue()
+    loop = asyncio.get_running_loop()
+
+    def progress_cb(msg: str) -> None:
+        loop.call_soon_threadsafe(
+            queue.put_nowait, {"type": "progress", "msg": msg}
+        )
+
+    def run_check() -> None:
+        try:
+            result = engine.check(req.content, progress=progress_cb)
+            loop.call_soon_threadsafe(
+                queue.put_nowait, {"type": "result", "data": asdict(result)}
+            )
+        except Exception as exc:
+            loop.call_soon_threadsafe(
+                queue.put_nowait, {"type": "error", "msg": str(exc)}
+            )
+        finally:
+            loop.call_soon_threadsafe(queue.put_nowait, None)
+
+    async def generate():
+        loop.run_in_executor(_executor, run_check)
+        while True:
+            item = await queue.get()
+            if item is None:
+                break
+            yield f"data: {json.dumps(item, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @app.get("/health")

@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>签前秒检 · 事实核查</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:"PingFang SC","Microsoft YaHei",sans-serif;background:#f1f5f9;color:#1e293b;min-height:100vh}
+
+/* ── header ── */
+header{background:#1e293b;color:#f8fafc;padding:16px 32px;display:flex;align-items:center;gap:12px}
+header h1{font-size:18px;font-weight:600;letter-spacing:.5px}
+header span{font-size:12px;color:#94a3b8;border:1px solid #334155;border-radius:4px;padding:2px 8px}
+
+/* ── layout ── */
+main{max-width:900px;margin:32px auto;padding:0 16px;display:flex;flex-direction:column;gap:20px}
+
+/* ── card ── */
+.card{background:#fff;border-radius:10px;box-shadow:0 1px 3px rgba(0,0,0,.08);padding:20px}
+
+/* ── input area ── */
+textarea{width:100%;height:220px;border:1px solid #e2e8f0;border-radius:8px;padding:12px;font-size:14px;line-height:1.7;resize:vertical;font-family:inherit;outline:none;transition:border-color .2s}
+textarea:focus{border-color:#6366f1}
+.input-footer{display:flex;justify-content:space-between;align-items:center;margin-top:10px}
+.char-count{font-size:13px;color:#94a3b8}
+button{background:#6366f1;color:#fff;border:none;border-radius:8px;padding:10px 28px;font-size:14px;font-weight:600;cursor:pointer;transition:background .2s}
+button:hover:not(:disabled){background:#4f46e5}
+button:disabled{background:#a5b4fc;cursor:not-allowed}
+
+/* ── progress ── */
+#progress-box{display:none}
+.progress-log{background:#0f172a;border-radius:8px;padding:14px 16px;font-family:"SF Mono",Consolas,monospace;font-size:12px;color:#94a3b8;max-height:160px;overflow-y:auto;line-height:1.8}
+.progress-log .step{color:#a78bfa}
+.progress-log .info{color:#64748b}
+.progress-log .ok{color:#34d399}
+.spinner{display:inline-block;width:14px;height:14px;border:2px solid #334155;border-top-color:#a78bfa;border-radius:50%;animation:spin .7s linear infinite;vertical-align:middle;margin-right:8px}
+@keyframes spin{to{transform:rotate(360deg)}}
+.progress-title{font-size:13px;color:#64748b;margin-bottom:8px;display:flex;align-items:center}
+
+/* ── result header ── */
+.risk-badge{display:inline-flex;align-items:center;gap:6px;font-size:15px;font-weight:700;border-radius:6px;padding:6px 14px}
+.risk-高危{background:#fef2f2;color:#dc2626}
+.risk-存疑{background:#fffbeb;color:#d97706}
+.risk-通过{background:#f0fdf4;color:#16a34a}
+.summary-text{margin-top:10px;font-size:13px;color:#475569;line-height:1.7}
+.stats{display:flex;gap:16px;margin-top:12px}
+.stat{font-size:13px;padding:4px 10px;border-radius:20px;font-weight:600}
+.stat-error{background:#fef2f2;color:#dc2626}
+.stat-doubt{background:#fffbeb;color:#d97706}
+.stat-pass{background:#f0fdf4;color:#16a34a}
+
+/* ── fact items ── */
+#items-list{display:flex;flex-direction:column;gap:12px;margin-top:4px}
+.fact-card{border:1px solid #e2e8f0;border-radius:8px;padding:14px 16px;border-left:4px solid #e2e8f0}
+.fact-card.err{border-left-color:#dc2626;background:#fff}
+.fact-card.doubt{border-left-color:#d97706;background:#fff}
+.fact-card.pass{border-left-color:#16a34a;background:#fff}
+
+.fact-top{display:flex;align-items:flex-start;gap:8px;flex-wrap:wrap}
+.res-badge{font-size:11px;font-weight:700;border-radius:4px;padding:2px 8px;white-space:nowrap}
+.res-错误{background:#fef2f2;color:#dc2626}
+.res-存疑{background:#fffbeb;color:#d97706}
+.res-通过{background:#f0fdf4;color:#16a34a}
+.type-badge{font-size:11px;border-radius:4px;padding:2px 8px;background:#f1f5f9;color:#475569;white-space:nowrap}
+.tier-badge{font-size:11px;border-radius:4px;padding:2px 8px;white-space:nowrap}
+.tier-金标准{background:#f5f3ff;color:#7c3aed}
+.tier-官方{background:#eff6ff;color:#1d4ed8}
+.tier-央媒{background:#ecfdf5;color:#065f46}
+.tier-其他{background:#f8fafc;color:#64748b}
+
+.fact-text{font-size:14px;font-weight:600;color:#1e293b;margin-top:8px;line-height:1.5}
+.fact-reason{font-size:13px;color:#475569;margin-top:6px;line-height:1.6}
+.fact-suggestion{font-size:12px;color:#7c3aed;margin-top:5px;background:#f5f3ff;padding:5px 10px;border-radius:4px}
+.fact-sources{margin-top:8px;display:flex;flex-wrap:wrap;gap:6px}
+.source-link{font-size:11px;color:#6366f1;text-decoration:none;background:#eef2ff;padding:2px 8px;border-radius:4px}
+.source-link:hover{text-decoration:underline}
+
+/* ── pipeline ── */
+.pipeline-toggle{font-size:12px;color:#94a3b8;cursor:pointer;margin-top:12px;user-select:none}
+.pipeline-toggle:hover{color:#64748b}
+.pipeline-detail{font-size:12px;color:#64748b;background:#f8fafc;border-radius:6px;padding:10px 12px;margin-top:8px;line-height:2;display:none}
+.pipeline-detail.open{display:block}
+
+/* ── error ── */
+.error-msg{background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:14px;color:#dc2626;font-size:14px}
+
+#result-box{display:none}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>签前秒检 · 事实核查</h1>
+  <span>v3 · 博查 + 百度 + 金标准</span>
+</header>
+
+<main>
+
+  <!-- 输入区 -->
+  <div class="card">
+    <textarea id="article" placeholder="请粘贴待核查稿件全文（建议200字以上）..."></textarea>
+    <div class="input-footer">
+      <span class="char-count" id="char-count">0 字</span>
+      <button id="submit-btn" onclick="startCheck()">开始核查</button>
+    </div>
+  </div>
+
+  <!-- 进度区 -->
+  <div class="card" id="progress-box">
+    <div class="progress-title">
+      <span class="spinner" id="spinner"></span>
+      <span id="progress-title-text">正在核查，预计 30–60 秒…</span>
+    </div>
+    <div class="progress-log" id="progress-log"></div>
+  </div>
+
+  <!-- 结果区 -->
+  <div id="result-box">
+    <!-- 结果头 -->
+    <div class="card" id="result-header"></div>
+    <!-- 事实列表 -->
+    <div id="items-list"></div>
+  </div>
+
+</main>
+
+<script>
+const articleEl = document.getElementById('article')
+const charCountEl = document.getElementById('char-count')
+const submitBtn = document.getElementById('submit-btn')
+const progressBox = document.getElementById('progress-box')
+const progressLog = document.getElementById('progress-log')
+const spinner = document.getElementById('spinner')
+const progressTitle = document.getElementById('progress-title-text')
+const resultBox = document.getElementById('result-box')
+const resultHeader = document.getElementById('result-header')
+const itemsList = document.getElementById('items-list')
+
+articleEl.addEventListener('input', () => {
+  charCountEl.textContent = articleEl.value.length + ' 字'
+})
+
+async function startCheck() {
+  const content = articleEl.value.trim()
+  if (content.length < 10) { alert('请输入有效稿件内容'); return }
+
+  // reset UI
+  submitBtn.disabled = true
+  progressBox.style.display = 'block'
+  resultBox.style.display = 'none'
+  progressLog.innerHTML = ''
+  spinner.style.display = 'inline-block'
+  progressTitle.textContent = '正在核查，预计 30–60 秒…'
+
+  try {
+    const resp = await fetch('/check/stream', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({content})
+    })
+
+    const reader = resp.body.getReader()
+    const decoder = new TextDecoder()
+    let buf = ''
+
+    while (true) {
+      const {done, value} = await reader.read()
+      if (done) break
+      buf += decoder.decode(value, {stream: true})
+      const parts = buf.split('\n\n')
+      buf = parts.pop()
+      for (const part of parts) {
+        const line = part.trim()
+        if (!line.startsWith('data: ')) continue
+        const payload = JSON.parse(line.slice(6))
+        if (payload.type === 'progress') appendProgress(payload.msg)
+        else if (payload.type === 'result') showResult(payload.data)
+        else if (payload.type === 'error') showError(payload.msg)
+      }
+    }
+  } catch (e) {
+    showError('网络请求失败：' + e.message)
+  }
+
+  spinner.style.display = 'none'
+  submitBtn.disabled = false
+}
+
+function appendProgress(msg) {
+  const el = document.createElement('div')
+  if (msg.startsWith('Step')) el.className = 'step'
+  else if (msg.startsWith('  →')) el.className = 'ok'
+  else el.className = 'info'
+  el.textContent = msg
+  progressLog.appendChild(el)
+  progressLog.scrollTop = progressLog.scrollHeight
+}
+
+function showError(msg) {
+  progressTitle.textContent = '核查出错'
+  resultBox.style.display = 'block'
+  resultHeader.innerHTML = `<div class="error-msg">⚠ ${escHtml(msg)}</div>`
+  itemsList.innerHTML = ''
+}
+
+function showResult(data) {
+  progressTitle.textContent = '核查完成'
+
+  // ── 结果头 ──
+  const riskClass = 'risk-' + data.risk_level
+  const riskIcon = data.risk_level === '高危' ? '⚠' : data.risk_level === '存疑' ? '?' : '✓'
+  const stats = `
+    <div class="stats">
+      ${data.error_count ? `<span class="stat stat-error">错误 ${data.error_count}</span>` : ''}
+      ${data.doubt_count ? `<span class="stat stat-doubt">存疑 ${data.doubt_count}</span>` : ''}
+      <span class="stat stat-pass">通过 ${data.pass_count}</span>
+    </div>`
+
+  const pipeline = data.pipeline || {}
+  const pipelineRows = Object.entries(pipeline)
+    .filter(([k]) => k !== 'fact_types')
+    .map(([k, v]) => `<div><b>${k}：</b>${escHtml(String(v))}</div>`).join('')
+  const pipelineHtml = pipelineRows ? `
+    <div class="pipeline-toggle" onclick="togglePipeline(this)">▸ 查看流水线详情</div>
+    <div class="pipeline-detail">${pipelineRows}</div>` : ''
+
+  resultHeader.innerHTML = `
+    <span class="risk-badge ${riskClass}">${riskIcon} ${data.risk_level}</span>
+    ${stats}
+    <div class="summary-text">${escHtml(data.summary)}</div>
+    ${pipelineHtml}`
+
+  // ── 事实卡片 ──
+  itemsList.innerHTML = ''
+  for (const item of (data.items || [])) {
+    const resClass = item.result === '错误' ? 'err' : item.result === '存疑' ? 'doubt' : 'pass'
+    const tierHtml = item.source_tier
+      ? `<span class="tier-badge tier-${item.source_tier}">${item.source_tier}</span>` : ''
+    const suggHtml = item.suggestion
+      ? `<div class="fact-suggestion">建议：${escHtml(item.suggestion)}</div>` : ''
+    const sourcesHtml = (item.sources || []).length
+      ? `<div class="fact-sources">${item.sources.map(s =>
+          s.url
+            ? `<a class="source-link" href="${escHtml(s.url)}" target="_blank">${escHtml(s.name || s.url)}</a>`
+            : `<span class="source-link">${escHtml(s.name)}</span>`
+        ).join('')}</div>` : ''
+
+    const card = document.createElement('div')
+    card.className = `card fact-card ${resClass}`
+    card.innerHTML = `
+      <div class="fact-top">
+        <span class="res-badge res-${item.result}">${item.result}</span>
+        <span class="type-badge">${item.type}</span>
+        ${tierHtml}
+      </div>
+      <div class="fact-text">${escHtml(item.fact)}</div>
+      <div class="fact-reason">${escHtml(item.reason)}</div>
+      ${suggHtml}
+      ${sourcesHtml}`
+    itemsList.appendChild(card)
+  }
+
+  resultBox.style.display = 'block'
+  resultBox.scrollIntoView({behavior: 'smooth', block: 'start'})
+}
+
+function togglePipeline(el) {
+  const detail = el.nextElementSibling
+  const open = detail.classList.toggle('open')
+  el.textContent = (open ? '▾ ' : '▸ ') + '查看流水线详情'
+}
+
+function escHtml(s) {
+  return String(s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;').replace(/\n/g,'<br>')
+}
+</script>
+</body>
+</html>

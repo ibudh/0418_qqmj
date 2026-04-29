@@ -5,6 +5,13 @@
 
 from __future__ import annotations
 
+# 加载 .env 文件中的环境变量（本地开发用）
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass  # 生产环境直接注入环境变量，无需 dotenv
+
 import asyncio
 import json
 import logging

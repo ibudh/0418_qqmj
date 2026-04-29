@@ -1,12 +1,13 @@
 # config.py
 # ==========================================
-# 全局配置中心
+# 全局配置中心 — API Key 从环境变量读取
 # ==========================================
+import os
 
-# 👇 请务必在这里填入你的 API Key
-DEEPSEEK_API_KEY = "sk-740673925ab64b76a1cf314493a0e35e"
-BOCHA_API_KEY = "sk-ba0ec622f08340989a6b5dead6f27f19"
-BAIDU_API_KEY = "bce-v3/ALTAK-7L3u5pImId3ZJuTOq2NKE/fedb8a4fa406b098170eb0543c417464902f110d"
+# 从环境变量读取（本地开发可在 .env 文件中设置）
+DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
+BOCHA_API_KEY    = os.environ.get("BOCHA_API_KEY", "")
+BAIDU_API_KEY    = os.environ.get("BAIDU_API_KEY", "")
 
 # DeepSeek 官方 API 地址
 BASE_URL = "https://api.deepseek.com"
